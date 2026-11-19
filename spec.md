@@ -69,7 +69,7 @@ The player (`@`) wakes up in a dark maze and the Grim Reaper (`R`) is close behi
 * There are two kinds of sign, and every sign is honest *(default)*:
   * **Warning (red text):** marks the wrong branch, e.g. *"Wanna get stuck?"* (the example in problem.md) at the first fork, pointing to the dead end.
   * **Guide (green text):** points toward the exit, e.g. *"The air smells of freedom ↓"*.
-* Colours use ANSI escape codes. On Windows the program enables virtual-terminal processing at startup so colours work in PowerShell and cmd.
+* Colours use ANSI escape codes. On Windows the program enables virtual-terminal processing at startup so colours work in PowerShell and cmd. `--no-color` prints plain text for terminals that can't show colour.
 * **Validity checks (tested):** the exit is reachable from the start; every fork on the solution path has a sign next to it; each warning sign is next to the entrance of a dead-end branch; following the guidance wins; walking to the end of any wrong branch gets the player caught.
 
 ## R3 — The player loses once the Grim Reaper catches them
