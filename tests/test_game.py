@@ -184,3 +184,10 @@ def test_R3_no_moves_accepted_after_losing():
     assert game.command("d") is Outcome.GAME_OVER
     assert game.move("right") is Outcome.GAME_OVER
     assert (game.turn, game.player) == (turn, player)
+
+
+def test_R1_byte_order_mark_from_powershell_pipe_is_ignored():
+    """R1: input piped from Windows PowerShell starts with a BOM; the first move still works."""
+    game = Game()
+    assert game.command("﻿d\n") is Outcome.MOVED
+    assert game.player == (1, 6)

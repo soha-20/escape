@@ -38,7 +38,7 @@ class Game:
     # --- commands -------------------------------------------------------
     def command(self, text: str) -> Outcome:
         """Handle one line of player input (w/a/s/d/q)."""
-        key = text.strip().lower()
+        key = text.replace("﻿", "").strip().lower()  # PowerShell pipes add a BOM
         if self.status is not Status.PLAYING:
             return Outcome.GAME_OVER
         if key == "q":
