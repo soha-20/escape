@@ -1,0 +1,265 @@
+"""Tests for the graphical game window: figures, signs, lighting and keys.
+
+These open real (hidden) tkinter windows but never play sound.
+"""
+
+import tkinter as tk
+
+import pytest
+
+from escape_game.game import Game, Status
+from escape_game.gui import (GREEN, RED, TILE, VIEW_COLS, VIEW_ROWS, GameWindow, camera_origin,
+                             danger_colour, heartbeat_period_ms, light_level, shade)
+
+
+class FakeSound:
+    def __init__(self):
+        self.played = []
+
+    def heartbeat(self, distance):
+        self.played.append(("heartbeat", distance))
+
+    def caught(self):
+        self.played.append(("caught",))
+
+    def escaped(self):
+        self.played.append(("escaped",))
+
+
+@pytest.fixture(scope="module")
+def tk_root():
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:  # no display available
+        pytest.skip(f"tkinter cannot open a window: {exc}")
+    root.withdraw()
+    yield root
+    root.destroy()
+
+
+@pytest.fixture
+def window(tk_root):
+    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False)
+    win.root.withdraw()
+    yield win
+    win.close()
+
+
+def texts(win, tag):
+    return [win.canvas.itemcget(i, "text") for i in win.canvas.find_withtag(tag)
+            if win.canvas.type(i) == "text"]
+
+
+def centre_of(win, tag):
+    x0, y0, x1, y1 = win.canvas.bbox(tag)
+    return (x0 + x1) / 2, (y0 + y1) / 2
+
+
+def press(win, *keys):
+    for k in keys:
+        win.on_key(k)
+
+
+def route_keys(game):
+    names = {(0, 1): "Right", (0, -1): "Left", (1, 0): "Down", (-1, 0): "Up"}
+    path = game.maze.shortest_path(game.player, game.maze.exit)
+    return [names[(b[0] - a[0], b[1] - a[1])] for a, b in zip(path, path[1:])]
+
+
+# --- R1: the game starts; player and reaper are real figures ---------------
+
+def test_R1_window_opens_on_a_title_screen(window):
+    """R1: the game starts with a title screen showing the Grim Reaper and the player."""
+    assert window.state == window.INTRO
+    assert texts(window, "title") == ["ESCAPE THE GRIM REAPER"]
+    assert window.canvas.find_withtag("overlay")
+
+
+def test_R1_any_key_starts_the_chase(window):
+    """R1: pressing a key leaves the title screen without moving the player."""
+    press(window, "space")
+    assert window.state == window.PLAYING
+    assert window.game.turn == 0
+    assert not window.canvas.find_withtag("overlay")
+    assert window.sound.played == [("heartbeat", 4)]
+
+
+def test_R1_player_figure_is_drawn_on_the_player_tile(window):
+    """R1: the player is a drawn figure standing on their tile."""
+    press(window, "space")
+    x, y = centre_of(window, "player")
+    col = int(x // TILE) + window.origin[1]
+    row = int(y // TILE) + window.origin[0]
+    assert (row, col) == window.game.player
+    assert len(window.canvas.find_withtag("player")) > 5  # a figure, not a single character
+
+
+def test_R1_reaper_figure_appears_only_when_in_torch_light(window):
+    """R1: the reaper is drawn (cloak, skull, scythe, eyes) once it is close enough to see."""
+    press(window, "space")
+    assert not window.canvas.find_withtag("reaper")
+    press(window, "Left")  # player (1,4), reaper (1,2): now in view
+    assert window.canvas.find_withtag("reaper")
+    assert len(window.canvas.find_withtag("reaper_eyes")) == 2
+
+
+@pytest.mark.parametrize("key,expected", [("Right", (1, 6)), ("d", (1, 6)), ("D", (1, 6)),
+                                          ("Left", (1, 4)), ("a", (1, 4))])
+def test_R1_arrow_keys_and_wasd_move_with_one_keypress(window, key, expected):
+    """R1: one keypress = one move, no Enter needed."""
+    press(window, "space", key)
+    assert window.game.player == expected
+    assert window.game.turn == 1
+
+
+def test_R1_wall_bump_shows_a_message_and_costs_no_turn(window):
+    """R1: walking into a wall is explained and does not let the reaper move."""
+    press(window, "space", "Up")
+    assert window.game.turn == 0
+    assert texts(window, "hud_message") == ["A cold stone wall blocks your way."]
+
+
+def test_R1_hud_shows_turn_and_reaper_distance(window):
+    """R1: the status panel shows the turn and how close the reaper is."""
+    press(window, "space", "Right")
+    assert texts(window, "hud_turn") == ["Turn 1"]
+    assert "4 steps away" in texts(window, "hud_status")[0]
+    assert window.canvas.find_withtag("heart")
+
+
+def test_R1_red_border_warns_when_the_reaper_is_close(window):
+    """R1: a red danger border appears when the reaper is 3 steps or fewer away."""
+    press(window, "space")
+    assert not window.canvas.find_withtag("danger")
+    press(window, "Left")
+    assert window.canvas.find_withtag("danger")
+    assert window.canvas.itemcget("danger", "outline") == RED
+
+
+def test_R1_escaping_shows_victory_screen_and_plays_escape_sound(window):
+    """R1: reaching the exit shows YOU ESCAPED! and plays the rising tune."""
+    press(window, "space", *route_keys(window.game))
+    assert window.game.status is Status.WON
+    assert texts(window, "ending_title") == ["YOU ESCAPED!"]
+    assert window.sound.played[-1] == ("escaped",)
+
+
+def test_R1_r_restarts_after_the_game_ends(window):
+    """R1: after the game ends, R starts a fresh chase."""
+    press(window, "space", "Left", "Left")
+    assert window.game.status is Status.LOST
+    press(window, "r")
+    assert window.state == window.PLAYING
+    assert window.game.status is Status.PLAYING and window.game.turn == 0
+
+
+def test_R1_escape_key_closes_the_window(tk_root):
+    """R1: Esc quits the game."""
+    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False)
+    toplevel = win.root
+    win.on_key("Escape")
+    assert toplevel not in tk_root.winfo_children()
+
+
+def test_R1_animation_tick_runs(window):
+    """R1: the heart, flame, eyes and border animate without errors."""
+    press(window, "space", "Left")
+    for _ in range(10):
+        window._tick()
+    assert window.ticks >= 10
+
+
+# --- R1: pure drawing helpers ---------------------------------------------
+
+def test_R1_torch_light_is_brightest_next_to_the_player():
+    """R1: tiles fade with distance from the torch; unseen tiles are pitch black."""
+    game = Game()
+    near = light_level(game, (1, 6))
+    far = light_level(game, (1, 8))
+    assert 1 >= near > far > 0
+    assert light_level(game, (9, 15)) == 0
+
+
+def test_R1_remembered_tiles_stay_dimly_lit():
+    """R1: tiles you walked past stay faintly visible behind you."""
+    game = Game()
+    for _ in range(4):
+        game.move("right")
+    assert 0 < light_level(game, (1, 2)) < light_level(game, (1, 8))
+
+
+def test_R1_heart_beats_faster_as_the_reaper_closes_in():
+    """R1: the on-screen heartbeat speeds up with danger."""
+    assert heartbeat_period_ms(8) > heartbeat_period_ms(5) > heartbeat_period_ms(2)
+    assert danger_colour(2) == RED
+
+
+def test_R1_camera_follows_the_player_and_stays_inside_the_maze():
+    """R1: the view is centred on the player but never shows outside the maze."""
+    game = Game()
+    top, left = camera_origin(game)
+    assert (top, left) == (0, 0)
+    game.player = (9, 20)
+    top, left = camera_origin(game)
+    assert top + VIEW_ROWS <= game.maze.height and left + VIEW_COLS <= game.maze.width
+    assert left <= 20 < left + VIEW_COLS
+
+
+def test_R1_shade_darkens_colours():
+    """R1: lighting is done by darkening colours."""
+    assert shade("#ff8040", 1) == "#ff8040"
+    assert shade("#ff8040", 0.5) == "#7f4020"
+    assert shade("#ff8040", 0) == "#000000"
+
+
+# --- R2: signs on the walls -------------------------------------------------
+
+def test_R2_sign_message_appears_in_red_at_the_first_fork(window):
+    """R2: standing at the first fork shows "Wanna get stuck?" as a red warning."""
+    press(window, "space", "Right", "Right", "Right", "Right")
+    banner = window.canvas.find_withtag("sign_banner")
+    assert len(banner) == 1
+    assert "Wanna get stuck?" in window.canvas.itemcget(banner[0], "text")
+    assert window.canvas.itemcget(banner[0], "fill") == RED
+
+
+def test_R2_guide_sign_message_is_green(window):
+    """R2: a guide sign's message is shown in green."""
+    keys = route_keys(window.game)
+    press(window, "space", *keys[:12])  # (5,13): the second fork, under a guide sign
+    assert window.game.player == (5, 13)
+    banner = window.canvas.find_withtag("sign_banner")
+    assert window.canvas.itemcget(banner[0], "fill") == GREEN
+
+
+def test_R2_signs_are_drawn_on_the_walls_with_a_glow(window):
+    """R2: signs are drawn as glowing plaques on the wall once in view."""
+    press(window, "space", "Right", "Right")
+    assert window.canvas.find_withtag("sign_warning")
+    assert not window.canvas.find_withtag("sign_banner")  # not standing next to it yet
+
+
+def test_R2_exit_door_is_drawn_when_seen(window):
+    """R2: the goal of the maze is a visible exit door."""
+    keys = route_keys(window.game)
+    press(window, "space", *keys[:-2])
+    assert "EXIT" in texts(window, "exit")
+
+
+# --- R3: losing --------------------------------------------------------------
+
+def test_R3_caught_shows_game_over_with_the_reaper(window):
+    """R3: being caught shows GAME OVER, a big reaper and plays the caught sound."""
+    press(window, "space", "Left", "Left")
+    assert window.game.status is Status.LOST
+    assert texts(window, "ending_title") == ["GAME OVER"]
+    assert window.canvas.find_withtag("overlay") and window.canvas.find_withtag("reaper_eyes")
+    assert window.sound.played[-1] == ("caught",)
+
+
+def test_R3_moves_are_ignored_after_game_over(window):
+    """R3: once caught, arrow keys do nothing."""
+    press(window, "space", "Left", "Left")
+    turn = window.game.turn
+    press(window, "Right", "Right")
+    assert window.game.turn == turn and window.game.status is Status.LOST
