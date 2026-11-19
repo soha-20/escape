@@ -1,28 +1,21 @@
 # Escape the Grim Reaper
 
-A short, tense escape game you play right in your terminal.
+A short, tense escape game you start from your terminal.
 
-You wake up in a dark maze and the Grim Reaper is four steps behind you. Every move you make, it makes one too. Find the exit (`E`) before it catches you.
+You wake up in a dark maze holding a torch, and the Grim Reaper is four steps behind you. Every move you make, it makes one too. Find the exit door before its hand closes on your shoulder.
 
-- **The maze is dark.** You can only see 3 tiles around you.
-- **Read the walls.** At every fork a sign (`!`) is scrawled on the wall. Red signs warn you away from dead ends (*"Wanna get stuck?"*). Green signs point toward freedom. One wrong turn into a dead end and the Reaper has you.
-- **Listen.** A heartbeat plays every turn and gets faster and higher as the Reaper closes in.
+![Title screen](docs/title-screen.png)
+
+- **The maze is dark.** Your torch lights only the few tiles around you. Everything else is black.
+- **Read the walls.** At every fork a sign glows on the wall. Red signs warn you away from dead ends (*"Wanna get stuck?"*). Green signs point toward freedom. One wrong turn into a dead end and the Reaper has you.
+- **Feel it coming.** A heartbeat sounds every turn and gets faster and higher as the Reaper closes in. The heart on screen pulses faster, and the screen flashes red when it's right behind you.
 - **Get caught and it's GAME OVER.**
 
-```
-  #######!#
-    ...@...        @  you
-  #######.#        R  the Grim Reaper
-  #######.#        !  a sign on the wall
-                   E  the exit
-
-Turn 2   Something cold breathes down your neck... (4 steps away)
-Move: w/a/s/d + Enter    Quit: q
-```
+![The Reaper closing in at the first fork](docs/chase.png)
 
 ## Requirements
 
-- Python 3.10 or newer (no extra packages needed to play)
+- Python 3.10 or newer. Nothing else to install to play: graphics use tkinter, which comes with Python.
 - Sound uses `winsound` on Windows. Other systems get the terminal bell.
 
 ## Run the game
@@ -31,14 +24,21 @@ Move: w/a/s/d + Enter    Quit: q
 py -m escape_game
 ```
 
+| Key | Action |
+|---|---|
+| Arrow keys or W A S D | move one tile (one keypress = one turn) |
+| R | play again after the game ends |
+| Esc | quit |
+
+Bumping into a wall doesn't cost you a turn.
+
 Options:
 
 | Option | Effect |
 |---|---|
 | `--mute` | play without sound |
-| `--no-color` | plain text, for terminals without colour support |
-
-Controls: type `w` (up), `a` (left), `s` (down) or `d` (right) and press Enter. Type `q` to give up. Bumping into a wall or mistyping doesn't cost you a turn.
+| `--text` | play inside the terminal instead of a window (type `w`/`a`/`s`/`d` + Enter, `q` to quit) |
+| `--no-color` | with `--text`: plain text for terminals without colour support |
 
 ## Run the tests
 
@@ -47,16 +47,18 @@ py -m pip install pytest   # once
 py -m pytest
 ```
 
-Every test is named after the requirement it checks (`test_R1_...`, `test_R2_...`, `test_R3_...`). See `problem.md` for the requirements and `spec.md` for how the game meets them.
+Every test is named after the requirement it checks (`test_R1_...`, `test_R2_...`, `test_R3_...`). The window tests open hidden tkinter windows and never play sound. See `problem.md` for the requirements and `spec.md` for how the game meets them.
 
 ## Project layout
 
 ```
 escape_game/
-  __main__.py   command-line entry point and input loop
+  __main__.py   command-line entry point (window by default, --text for terminal)
   maze.py       the fixed maze, wall signs, shortest-path search
   game.py       turn order, reaper chase, win/lose rules
-  render.py     what the player sees (fog of war, colours, messages)
+  gui.py        the game window: drawn figures, torch light, signs, HUD, screens
+  render.py     the terminal (--text) version's drawing
   sound.py      heartbeat and win/lose tones
 tests/          pytest tests, one or more per requirement
+docs/           screenshots
 ```
