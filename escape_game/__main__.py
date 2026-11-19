@@ -1,4 +1,9 @@
-"""Command-line entry point: py -m escape_game [--mute] [--no-color]"""
+"""Command-line entry point.
+
+    py -m escape_game                     graphical game window (default)
+    py -m escape_game --text [--no-color] play inside the terminal instead
+    --mute                                no sound in either mode
+"""
 
 import argparse
 import os
@@ -25,8 +30,16 @@ def main(argv=None, stdin=None, stdout=None, sound: Sound | None = None) -> int:
     parser = argparse.ArgumentParser(prog="py -m escape_game",
                                      description="Escape the Grim Reaper through a dark maze.")
     parser.add_argument("--mute", action="store_true", help="play without sound")
-    parser.add_argument("--no-color", action="store_true", help="plain text, no ANSI colours")
+    parser.add_argument("--text", action="store_true", help="play inside the terminal instead of a window")
+    parser.add_argument("--no-color", action="store_true", help="with --text: plain text, no ANSI colours")
     args = parser.parse_args(argv)
+
+    if not args.text:
+        try:
+            from . import gui
+            return gui.run(mute=args.mute)
+        except Exception as exc:  # no tkinter or no display: fall back to the terminal game
+            (stdout or sys.stdout).write(f"Could not open the game window ({exc}); playing in the terminal.\n")
 
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout

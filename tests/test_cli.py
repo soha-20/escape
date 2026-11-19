@@ -27,7 +27,7 @@ def winning_keys():
 def play(keys, *extra_args):
     rec = Recorder()
     out = io.StringIO()
-    code = main(["--no-color", *extra_args], stdin=io.StringIO(keys), stdout=out,
+    code = main(["--text", "--no-color", *extra_args], stdin=io.StringIO(keys), stdout=out,
                 sound=Sound(beep=rec.beep, sleep=lambda s: None))
     return code, out.getvalue(), rec.beeps
 
@@ -76,7 +76,7 @@ def test_R2_sign_text_appears_at_the_fork():
 def test_R2_warning_signs_are_red_and_guides_green_when_colour_is_on():
     """R2: the warning text is printed in red (ANSI 91)."""
     out = io.StringIO()
-    main([], stdin=io.StringIO("d\nd\nd\nd\nq\n"), stdout=out, sound=Sound(enabled=False))
+    main(["--text"], stdin=io.StringIO("d\nd\nd\nd\nq\n"), stdout=out, sound=Sound(enabled=False))
     assert '\033[1;91m"Wanna get stuck?' in out.getvalue()
 
 
@@ -92,5 +92,29 @@ def test_R3_caught_through_the_cli():
 def test_R1_mute_flag_disables_sound():
     """R1: --mute plays nothing."""
     out = io.StringIO()
-    main(["--mute", "--no-color"], stdin=io.StringIO("d\nq\n"), stdout=out)
+    main(["--text", "--mute", "--no-color"], stdin=io.StringIO("d\nq\n"), stdout=out)
     assert "Turn 1" in out.getvalue()
+
+
+def test_R1_game_window_is_the_default(monkeypatch):
+    """R1: with no options the graphical window opens (with sound unless --mute)."""
+    import escape_game.gui as gui
+    calls = []
+    monkeypatch.setattr(gui, "run", lambda mute=False: calls.append(mute) or 0)
+    assert main([]) == 0
+    assert main(["--mute"]) == 0
+    assert calls == [False, True]
+
+
+def test_R1_falls_back_to_terminal_if_window_cannot_open(monkeypatch):
+    """R1: if no window can be opened, the game is still playable in the terminal."""
+    import escape_game.gui as gui
+
+    def broken(mute=False):
+        raise RuntimeError("no display")
+
+    monkeypatch.setattr(gui, "run", broken)
+    out = io.StringIO()
+    assert main(["--mute"], stdin=io.StringIO("q\n"), stdout=out) == 0
+    assert "Could not open the game window" in out.getvalue()
+    assert "You gave up" in out.getvalue()
