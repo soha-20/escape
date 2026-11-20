@@ -219,13 +219,15 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 * **Walk cycle (player).** While sliding, the legs and arms swing and the body bobs. The player faces left or right according to the last sideways move and is drawn mirrored when facing left. Standing still, the player breathes (a slight bob) and the torch flame flickers.
 * **The Reaper moves too.** It floats above the ground (a slow up-and-down hover, with a shadow beneath it). Its tattered hem flutters, its cloak leans into the direction it moves, and its scythe sways.
 * **Polish.** Tiles are drawn with light and dark sides (gravestones with an "RIP" inscription and cracks, gnarled trees, shaded iron), and the HUD has a framed panel with a controls line.
-* **Testable parts.** Pure helpers (`ease`, `tween`, `walk_pose`, `hover`) compute the animation; window tests check that the figures change between frames and end on the right tile. Tests turn the slide off (`animate=False`) unless they test it.
+* **Keeping frames cheap** *(default)*. Tk repaints every canvas item under a changed area, and on the development machine that is slow (the round-3 window ran at about 7 frames per second). So: the background is built once per turn and only *moved* while the camera scrolls; only the figures are redrawn each frame; the mist moves every 4th frame; an item is reconfigured only when its look changes; layers are kept in order with `tag_lower` instead of raising the big ones; and the frame timer subtracts the time spent drawing. Measured: about 18 frames per second while walking (5 before these measures).
+* **Testable parts.** Pure helpers (`ease`, `tween`, `walk_pose`, `jump_height`, `hover`) compute the animation; window tests check that the figures change between frames and end on the right tile. Tests turn the slide off (`animate=False`) unless they test it; the slide tests call `_tick()` by hand.
+* **Screens wait for the slide.** The CAUGHT!/HURT!/GAME OVER/YOU ESCAPED! screens appear when the last slide has been shown (or at once if a key is pressed meanwhile).
 
 ## R9 — The whole screen is lit, not just one side
 
 * *Problem:* in rounds 1–3 only tiles within 3 of the torch were lit; the rest of the view was dark or black. Near the camera's edge this left one side of the screen bright and the rest dark.
 * **Moonlight everywhere.** Every tile in the camera view is drawn clearly, in a cool, moonlit colour (never darker than 80 % brightness). There is no fog of war and no "seen tiles" memory any more, in either front end (decision 0006).
-* **Torch glow.** Tiles near the player are brighter and warmer (orange-tinted), fading out over about 3 tiles. The glow moves with the player.
+* **Torch glow.** Tiles near the player are brighter and warmer (orange-tinted), fading out over 3.5 tiles (`TORCH_REACH`); far tiles get a cool, blue moonlight tint (`lit`). There is no glow shape on top of the tiles: Tk on Windows has no transparency (see R11).
 * **The Reaper and hazards** are drawn whenever they are in the camera view.
 * **Text version:** the whole graveyard map is printed every turn.
 * *Changes R1:* the fog-of-war rules of R1 are gone. Their tests were adapted to check the new light.
@@ -245,10 +247,11 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 
 ## R11 — Graphics that make the game look scary
 
-* **The Reaper** is about 1.6 tiles tall, so it towers over the player. It has a deep, empty hood around a skull with sunken sockets, **glowing red eyes with a red halo**, bony fingers around a long scythe with a curved, gleaming blade, and a tattered hem that frays into wisps of black smoke. A dark red aura pulses on the ground under it, faster as it gets closer to the player.
-* **Atmosphere:** banks of pale **mist drift** slowly across the graveyard. The title screen has a full moon behind bare branches, a blood-red title with a dark shadow, and the animated Reaper.
+* **The Reaper** is about 1.6 tiles tall, so it towers over the player. It has a deep, empty hood around a skull with black, sunken sockets, **glowing red eyes with white-hot cores** that pulse, bony fingers around a long scythe with a curved, gleaming blade, and a tattered hem that flutters over puffs of black smoke. **Rings of red light pulse** on the ground under it, at the heartbeat's pace, so faster as it gets closer to the player.
+* **Atmosphere:** thin **wisps of pale mist drift** slowly across the graveyard. The title and ending screens have a big moon (blood red at GAME OVER) behind bare branches, wisps of ground mist over the graves, a blood-red title with a dark shadow, and the hovering Reaper.
+* **No transparency** *(found when checking screenshots)*: Tk on Windows ignores the `stipple` option and draws such shapes solid (the first try covered the view with an orange disc and white clouds). So glows are drawn as rings and cores, mist as thin lines, and no item uses `stipple` (tested).
 * **Danger:** when the Reaper is 3 steps or fewer away, the red border pulses (as before) and the view edges glow red.
-* Tags for tests: `reaper` (all of it), `reaper_eyes`, `reaper_glow`, `scythe`, `aura`, `mist`.
+* Tags for tests: `reaper` (all of it), `reaper_eyes`, `reaper_glow`, `scythe`, `aura`, `mist`; for the player `player_leg`, `player_arm`, `player_shadow`, `flame`, `flame_core`.
 
 ## Program structure
 

@@ -42,7 +42,7 @@ def tk_root():
 
 @pytest.fixture
 def window(tk_root):
-    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False)
+    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False, animate=False)
     win.root.withdraw()
     yield win
     win.close()
@@ -526,3 +526,218 @@ def test_R10_controls_and_title_screen_mention_the_jump(window):
     assert any("↑" in t and "leap" in t for t in texts(window, "overlay"))
     press(window, "space")
     assert any("↑  jump" in t for t in texts(window, "hud"))
+
+
+# --- R8: figures that move -------------------------------------------------------
+
+from escape_game.gui import (JUMP_FRAMES, SLIDE_FRAMES, camera_at, ease, hover, jump_height,  # noqa: E402
+                             lit, tween, walk_pose)
+
+
+@pytest.fixture
+def animated(tk_root):
+    """A window that shows each turn as a slide, driven by calling _tick() by hand."""
+    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False, animate=True)
+    win.root.withdraw()
+    win.root.after_cancel(win._after)
+    real_after = win.root.after
+    win.root.after = lambda ms, func: real_after(10 ** 7, lambda: None)  # the test drives the frames
+    yield win
+    win.close()
+
+
+def tile_of(win, tag):
+    """The (fractional) tile under the centre of the figure's feet."""
+    x0, _, x1, y1 = win.canvas.bbox(tag)
+    return (y1 - TILE * 0.8) / TILE + win.origin[0], (x0 + x1) / 2 / TILE - 0.5 + win.origin[1]
+
+
+def test_R8_ease_and_tween_slide_smoothly_from_tile_to_tile():
+    """R8: a slide starts and ends gently and passes every point in between."""
+    assert ease(0) == 0 and ease(1) == 1 and ease(0.5) == 0.5
+    assert ease(0.1) < 0.1 and ease(0.9) > 0.9
+    assert tween((1, 5), (1, 6), 0.5) == (1, 5.5)
+
+
+def test_R8_walk_pose_swings_legs_forward_and_back_once_per_step():
+    """R8: the walk cycle swings one way, then the other, and ends where it started."""
+    assert walk_pose(0) == 0 and abs(walk_pose(1)) < 1e-9
+    assert walk_pose(0.25) == pytest.approx(1) and walk_pose(0.75) == pytest.approx(-1)
+
+
+def test_R8_jump_rises_and_lands():
+    """R8 / R10: the jump arc is highest in the middle and on the ground at both ends."""
+    assert jump_height(0) == 0 and jump_height(1) == pytest.approx(0, abs=1e-9)
+    assert jump_height(0.5) > jump_height(0.2) > 0
+
+
+def test_R8_player_slides_to_the_next_tile_over_several_frames(animated):
+    """R8: after a move the figure is first still on the old tile, then between tiles, then on the new one."""
+    press(animated, "space", "Right")
+    assert animated.game.player == (1, 6)              # the rules moved at once
+    assert tile_of(animated, "player")[1] == pytest.approx(5, abs=0.15)
+    animated._tick()
+    animated._tick()
+    middle = tile_of(animated, "player")[1]
+    assert 5.1 < middle < 5.9
+    for _ in range(SLIDE_FRAMES):
+        animated._tick()
+    assert animated.motion is None
+    assert tile_of(animated, "player")[1] == pytest.approx(6, abs=0.15)
+
+
+def test_R8_legs_move_while_walking(animated):
+    """R8: the legs are drawn in a different pose on different frames of a step."""
+    press(animated, "space", "Right")
+    poses = set()
+    for _ in range(SLIDE_FRAMES - 1):
+        animated._tick()
+        poses.add(tuple(round(v) for i in animated.canvas.find_withtag("player_leg")
+                        for v in animated.canvas.coords(i)))
+    assert len(poses) >= 3
+
+
+def test_R8_player_faces_the_way_they_walk(animated):
+    """R8: walking left mirrors the figure (the torch moves to the other side)."""
+    press(animated, "space")
+    right_torch = centre_of(animated, "flame")[0] - centre_of(animated, "player")[0]
+    press(animated, "Left")
+    for _ in range(SLIDE_FRAMES):
+        animated._tick()
+    left_torch = centre_of(animated, "flame")[0] - centre_of(animated, "player")[0]
+    assert right_torch > 0 > left_torch
+
+
+def test_R8_the_reaper_glides_and_hovers(animated):
+    """R8 / R11: the reaper slides after the player and keeps floating while it waits."""
+    press(animated, "space", "Right")  # the reaper glides from (1,1) to (1,2)
+    animated._tick()
+    animated._tick()
+    x0, _, x1, _ = animated.canvas.bbox("aura")  # the aura on the ground follows the reaper
+    assert 1.1 < (x0 + x1) / 2 / TILE - 0.5 < 1.9
+    for _ in range(SLIDE_FRAMES):
+        animated._tick()
+    tops = set()
+    for _ in range(12):
+        animated._tick()
+        tops.add(round(animated.canvas.bbox("reaper")[1]))
+    assert len(tops) > 1
+    assert abs(hover(0) - hover(1200)) > 0
+
+
+def test_R8_the_camera_scrolls_smoothly(animated):
+    """R8: when the view has to follow the player, it moves part of a tile per frame, not all at once."""
+    press(animated, "space")
+    animated.game.player = (1, 12)
+    animated.redraw()
+    left = animated.origin[1]
+    press(animated, "Right")
+    animated._tick()
+    animated._tick()
+    assert left < animated.origin[1] < left + 1
+    for _ in range(SLIDE_FRAMES):
+        animated._tick()
+    assert animated.origin == camera_at(animated.game.maze, animated.game.player)
+
+
+def test_R8_a_key_during_a_slide_finishes_it_and_takes_the_next_move(animated):
+    """R8: fast typing never lags: the next key finishes the slide and moves again."""
+    press(animated, "space", "Right")
+    animated._tick()
+    press(animated, "Right")
+    assert animated.game.player == (1, 7) and animated.game.turn == 2
+    assert animated.motion.player_from == (1, 6)
+
+
+def test_R8_the_caught_screen_waits_until_the_slide_is_seen(animated):
+    """R8: the life-lost screen appears after the reaper has visibly reached the player."""
+    press(animated, "space", *CATCH)
+    assert animated.state == animated.CAUGHT and not animated.canvas.find_withtag("caught_title")
+    for _ in range(SLIDE_FRAMES):
+        animated._tick()
+    assert texts(animated, "caught_title") == ["CAUGHT!"]
+
+
+def test_R8_a_key_after_the_last_move_still_shows_the_end_screen(animated):
+    """R8: a key pressed while the final slide plays shows the GAME OVER screen at once."""
+    press(animated, "space", *CATCH, "r", *CATCH, "r", *CATCH)
+    press(animated, "Left")
+    assert texts(animated, "ending_title") == ["GAME OVER"]
+
+
+def test_R8_jump_lifts_the_player_off_the_ground(animated):
+    """R8 / R10: mid-jump the figure is above its shadow; it lands two tiles on."""
+    press(animated, "space", "Right", "Right", "Right")
+    for _ in range(SLIDE_FRAMES):
+        animated._tick()
+    ground = animated.canvas.bbox("player")[3]
+    press(animated, "Up")
+    for _ in range(JUMP_FRAMES // 2):
+        animated._tick()
+    assert animated.canvas.bbox("player")[3] < ground - TILE * 0.3
+    assert animated.canvas.find_withtag("player_shadow")
+    for _ in range(JUMP_FRAMES):
+        animated._tick()
+    assert tile_of(animated, "player")[1] == pytest.approx(10, abs=0.15)
+
+
+# --- R9 / R11: light and colour ---------------------------------------------------
+
+def test_R9_the_torch_warms_colours_and_the_moon_cools_them():
+    """R9: near the torch colours turn orange-warm; far away they turn moon-blue, never black."""
+    near, far = lit("#808080", 1.0, 1.0), lit("#808080", 0.8, 0.0)
+    r_near, b_near = int(near[1:3], 16), int(near[5:7], 16)
+    r_far, b_far = int(far[1:3], 16), int(far[5:7], 16)
+    assert r_near > b_near and b_far > r_far
+    assert min(r_far, b_far) > 0x50
+
+
+# --- R11: a scary reaper and a haunted graveyard ----------------------------------
+
+def test_R11_the_reaper_towers_over_the_player(window):
+    """R11: the reaper is about 1.6 tiles tall, much taller than the player."""
+    press(window, "space")
+    _, top, _, bottom = window.canvas.bbox("reaper")
+    _, ptop, _, pbottom = window.canvas.bbox("player")
+    assert bottom - top > 1.4 * TILE
+    assert bottom - top > 1.3 * (pbottom - ptop)
+
+
+def test_R11_the_reaper_has_glowing_eyes_a_scythe_and_an_aura(window):
+    """R11: glowing eyes, a scythe blade and a red aura on the ground."""
+    press(window, "space")
+    for tag in ("reaper_eyes", "reaper_glow", "scythe", "aura"):
+        assert window.canvas.find_withtag(tag), f"nothing tagged {tag!r}"
+
+
+def test_R11_the_aura_pulses_faster_when_the_reaper_is_close():
+    """R11: the aura beats with the heartbeat, which speeds up as the reaper closes in."""
+    assert heartbeat_period_ms(2) < heartbeat_period_ms(8)
+
+
+def test_R11_mist_drifts_across_the_graveyard(window):
+    """R11: wisps of mist are drawn over the graveyard and drift with time."""
+    press(window, "space")
+    before = [window.canvas.coords(i)[0] for i in window.canvas.find_withtag("mist")]
+    assert before
+    for _ in range(8):
+        window._tick()
+    after = [window.canvas.coords(i)[0] for i in window.canvas.find_withtag("mist")]
+    assert after != before
+
+
+def test_R11_nothing_relies_on_transparency(window):
+    """R11: Tk on Windows draws stippled shapes solid, so no item may use a stipple."""
+    for state_keys in ((), ("space",), CATCH):
+        press(window, *state_keys)
+        for i in window.canvas.find_all():
+            if "stipple" in window.canvas.itemconfigure(i):
+                assert window.canvas.itemcget(i, "stipple") == ""
+
+
+def test_R11_title_and_end_screens_have_a_moon_and_a_shadowed_title(window):
+    """R11: the title is blood red with a dark shadow beneath it."""
+    title = window.canvas.find_withtag("title")[0]
+    shadows = [i for i in window.canvas.find_withtag("overlay")
+               if window.canvas.type(i) == "text" and window.canvas.itemcget(i, "text") == "ESCAPE THE GRIM REAPER"]
+    assert len(shadows) == 2 and window.canvas.itemcget(title, "fill") == RED
