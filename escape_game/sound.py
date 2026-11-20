@@ -24,6 +24,7 @@ def heartbeat_tones(distance: int) -> list[Tone]:
 
 CAUGHT_TONES: list[Tone] = [(400, 200), (300, 200), (200, 250), (100, 600)]
 ESCAPED_TONES: list[Tone] = [(523, 150), (659, 150), (784, 150), (1047, 400)]
+LIFE_LOST_TONES: list[Tone] = [(440, 150), (220, 350)]  # R4: shorter than CAUGHT_TONES
 
 
 def _default_beep() -> Callable[[int, int], None]:
@@ -65,3 +66,6 @@ class Sound:
 
     def escaped(self) -> None:
         self.play(ESCAPED_TONES)
+
+    def life_lost(self) -> None:
+        self.play(LIFE_LOST_TONES)

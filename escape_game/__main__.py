@@ -18,6 +18,7 @@ CLEAR = "\033[2J\033[H"
 MESSAGES = {
     Outcome.WALL: "A cold stone wall. You lose no time, but don't waste any either.",
     Outcome.INVALID: "Unknown command. Use w/a/s/d to move or q to quit.",
+    Outcome.PAUSED: "You are in the Reaper's grip. Type r to resume.",
 }
 
 
@@ -63,7 +64,7 @@ def main(argv=None, stdin=None, stdout=None, sound: Sound | None = None) -> int:
     stdout.write(INTRO + "\n")
     show()
     sound.heartbeat(game.reaper_distance())
-    while game.status is Status.PLAYING:
+    while game.status in (Status.PLAYING, Status.CAUGHT):
         stdout.write("> ")
         stdout.flush()
         line = stdin.readline()
@@ -71,9 +72,13 @@ def main(argv=None, stdin=None, stdout=None, sound: Sound | None = None) -> int:
             line = "q"
         outcome = game.command(line)
         show(MESSAGES.get(outcome, ""))
-        if outcome is Outcome.MOVED:
+        if outcome is Outcome.RESUMED:
+            sound.heartbeat(game.reaper_distance())
+        elif outcome is Outcome.MOVED:
             if game.status is Status.PLAYING:
                 sound.heartbeat(game.reaper_distance())
+            elif game.status is Status.CAUGHT:
+                sound.life_lost()
             elif game.status is Status.LOST:
                 sound.caught()
             elif game.status is Status.WON:

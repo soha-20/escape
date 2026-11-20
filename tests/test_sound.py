@@ -1,6 +1,6 @@
 """Tests for the chase sounds (part of R1: the tension of being chased)."""
 
-from escape_game.sound import CAUGHT_TONES, ESCAPED_TONES, Sound, heartbeat_tones
+from escape_game.sound import CAUGHT_TONES, ESCAPED_TONES, LIFE_LOST_TONES, Sound, heartbeat_tones
 
 
 class Recorder:
@@ -72,3 +72,15 @@ def test_R1_sound_failure_does_not_crash_the_game():
     sound.heartbeat(1)
     sound.heartbeat(1)
     assert len(calls) == 1 and sound.enabled is False
+
+
+def test_R4_losing_a_life_plays_a_short_falling_tone():
+    """R4: losing a life (not the last one) plays a short falling tone, unlike the long GAME OVER tone."""
+    rec = Recorder()
+    Sound(beep=rec.beep, sleep=rec.sleep).life_lost()
+    assert rec.beeps == LIFE_LOST_TONES
+    freqs = [f for f, _ in LIFE_LOST_TONES]
+    assert freqs == sorted(freqs, reverse=True) and len(set(freqs)) > 1
+    assert LIFE_LOST_TONES != CAUGHT_TONES
+    assert sum(ms for _, ms in LIFE_LOST_TONES) < sum(ms for _, ms in CAUGHT_TONES)
+    assert min(freqs) >= 150  # audible on laptop speakers

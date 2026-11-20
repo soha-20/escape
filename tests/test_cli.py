@@ -5,7 +5,7 @@ import io
 from escape_game.__main__ import main
 from escape_game.game import Game
 from escape_game.maze import DIRECTIONS
-from escape_game.sound import CAUGHT_TONES, ESCAPED_TONES, Sound
+from escape_game.sound import CAUGHT_TONES, ESCAPED_TONES, LIFE_LOST_TONES, Sound
 
 KEY_FOR = {(-1, 0): "w", (1, 0): "s", (0, -1): "a", (0, 1): "d"}
 
@@ -80,13 +80,52 @@ def test_R2_warning_signs_are_red_and_guides_green_when_colour_is_on():
     assert '\033[1;91m"Wanna get stuck?' in out.getvalue()
 
 
+CATCH = "a\na\n"  # two steps back toward the reaper: caught
+
+
 def test_R3_caught_through_the_cli():
-    """R3: walking back into the reaper ends the game with GAME OVER and the caught tone."""
-    code, out, beeps = play("a\na\nd\n")
+    """R3: being caught on the last life ends the game with GAME OVER and the caught tone."""
+    code, out, beeps = play(CATCH + "r\n" + CATCH + "r\n" + CATCH + "d\n")
     assert code == 0
     assert "GAME OVER" in out
     assert beeps[-len(CAUGHT_TONES):] == CAUGHT_TONES
-    assert out.rstrip().endswith("GAME OVER.")  # third key was never read
+    assert out.rstrip().endswith("GAME OVER.")  # the last key was never read
+
+
+# --- R4 / R5: lives in the terminal version ---------------------------------
+
+def test_R4_caught_with_lives_left_waits_for_r_then_resumes():
+    """R4: a catch costs a life, plays the life-lost tone, and r + Enter resumes the chase."""
+    code, out, beeps = play(CATCH + "d\nr\nq\n")
+    assert code == 0
+    assert "You lose a life" in out
+    assert "r + Enter" in out
+    assert _contains(beeps, LIFE_LOST_TONES)
+    assert not _contains(beeps, CAUGHT_TONES)
+    assert "GAME OVER" not in out
+    # 'd' while caught is ignored; after r the player is back at the start, turn count kept
+    resumed = out.split("You lose a life")[-1]
+    assert "Turn 2" in resumed
+    assert out.rstrip().endswith("You gave up. The Reaper is patient.")
+
+
+def test_R4_win_after_losing_a_life():
+    """R4: after resuming, the player can still escape."""
+    code, out, beeps = play(CATCH + "r\n" + winning_keys())
+    assert "You escaped the Reaper" in out
+    assert beeps[-len(ESCAPED_TONES):] == ESCAPED_TONES
+
+
+def test_R5_hearts_go_from_three_to_none_in_the_terminal():
+    """R5: the terminal shows ♥ ♥ ♥, then ♥ ♥ ♡, ♥ ♡ ♡ and finally ♡ ♡ ♡."""
+    code, out, _ = play(CATCH + "r\n" + CATCH + "r\n" + CATCH)
+    positions = [out.find(f"Lives: {h}") for h in ("♥ ♥ ♥", "♥ ♥ ♡", "♥ ♡ ♡", "♡ ♡ ♡")]
+    assert all(p >= 0 for p in positions)
+    assert positions == sorted(positions)
+
+
+def _contains(seq, sub):
+    return any(seq[i:i + len(sub)] == sub for i in range(len(seq) - len(sub) + 1))
 
 
 def test_R1_mute_flag_disables_sound():

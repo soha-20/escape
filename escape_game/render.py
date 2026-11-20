@@ -1,6 +1,6 @@
 """Turn a Game into text for the terminal. Pure functions: no printing."""
 
-from .game import Game, Status
+from .game import MAX_LIVES, Game, Status
 from .maze import GUIDE, WARNING
 
 RESET = "\033[0m"
@@ -22,6 +22,9 @@ INTRO = (
 )
 
 CONTROLS = "Move: w/a/s/d + Enter    Quit: q"
+RESUME_CONTROLS = "Resume: r + Enter    Quit: q"
+
+FULL_HEART, EMPTY_HEART = "♥", "♡"
 
 
 def paint(text: str, style: str, color: bool) -> str:
@@ -71,6 +74,13 @@ def sign_lines(game: Game, color: bool = True) -> list[str]:
     return lines
 
 
+def lives_line(game: Game, color: bool = True) -> str:
+    """R5: one heart per life; lost lives become empty hearts on the right."""
+    full = [paint(FULL_HEART, "danger", color)] * max(game.lives, 0)
+    empty = [EMPTY_HEART] * (MAX_LIVES - len(full))
+    return "Lives: " + " ".join(full + empty)
+
+
 def ending(game: Game, color: bool = True) -> str | None:
     if game.status is Status.WON:
         return paint(f"You burst into the night air. You escaped the Reaper in {game.turn} turns!",
@@ -84,10 +94,13 @@ def ending(game: Game, color: bool = True) -> str | None:
 
 def screen(game: Game, message: str = "", color: bool = True) -> str:
     """Everything shown for one turn."""
-    parts = [draw_map(game, color), ""]
+    parts = [draw_map(game, color), "", lives_line(game, color)]
     end = ending(game, color)
     if end:
         parts.append(end)
+    elif game.status is Status.CAUGHT:
+        parts.append(paint("The Reaper's cold hand grabs you! You lose a life.", "danger", color))
+        parts.append(RESUME_CONTROLS)
     else:
         parts.append(f"Turn {game.turn}   " + reaper_line(game.reaper_distance(), color))
         parts.extend(sign_lines(game, color))

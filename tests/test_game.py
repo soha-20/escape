@@ -228,6 +228,7 @@ def test_R4_moves_are_ignored_while_caught():
     turn, player = game.turn, game.player
     assert game.move("right") is Outcome.PAUSED
     assert game.command("d") is Outcome.PAUSED
+    assert game.command("x") is Outcome.PAUSED
     assert (game.turn, game.player, game.status) == (turn, player, Status.CAUGHT)
 
 

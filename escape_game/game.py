@@ -51,6 +51,8 @@ class Game:
             return Outcome.QUIT
         if key == "r":
             return self.resume()
+        if self.status is Status.CAUGHT:
+            return Outcome.PAUSED
         if key not in KEYS:
             return Outcome.INVALID
         return self.move(KEYS[key])
