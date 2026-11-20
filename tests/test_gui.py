@@ -129,10 +129,10 @@ def test_R1_arrow_keys_and_wasd_move_with_one_keypress(window, key, expected):
 
 
 def test_R1_wall_bump_shows_a_message_and_costs_no_turn(window):
-    """R1: walking into a wall is explained and does not let the reaper move."""
+    """R1: walking into something (since R6: the graveyard fence) is explained and does not let the reaper move."""
     press(window, "space", "Up")
     assert window.game.turn == 0
-    assert texts(window, "hud_message") == ["A cold stone wall blocks your way."]
+    assert texts(window, "hud_message") == ["An iron fence blocks your way."]
 
 
 def test_R1_hud_shows_turn_and_reaper_distance(window):
@@ -229,7 +229,7 @@ def test_R1_shade_darkens_colours():
     assert shade("#ff8040", 0) == "#000000"
 
 
-# --- R2: signs on the walls -------------------------------------------------
+# --- R2: signs on signposts -------------------------------------------------
 
 def test_R2_sign_message_appears_in_red_at_the_first_fork(window):
     """R2: standing at the first plot's entrance shows "Wanna get stuck?" as a red warning."""
@@ -248,15 +248,15 @@ def test_R2_guide_sign_message_is_green(window):
     assert window.canvas.itemcget(banner[0], "fill") == GREEN
 
 
-def test_R2_signs_are_drawn_on_the_walls_with_a_glow(window):
-    """R2: signs are drawn as glowing plaques on the wall once in view."""
+def test_R2_signs_are_drawn_as_glowing_signposts(window):
+    """R2: signs are drawn as glowing plaques on signposts (R6) once in view."""
     press(window, "space", *route_keys(window.game, (4, 21)))  # two tiles short of the signpost
     assert window.canvas.find_withtag("sign_warning")
     assert not window.canvas.find_withtag("sign_banner")  # not standing next to it yet
 
 
 def test_R2_exit_door_is_drawn_when_seen(window):
-    """R2: the goal of the maze is a visible exit door."""
+    """R2: the goal of the graveyard is a visible exit gate."""
     keys = route_keys(window.game)
     press(window, "space", *keys[:-2])
     assert "EXIT" in texts(window, "exit")
@@ -373,3 +373,80 @@ def test_R5_hearts_still_beat_with_the_heartbeat(window):
         sizes.add(window.canvas.itemcget(window.canvas.find_withtag("heart")[0], "font"))
         lost_fonts.add(window.canvas.itemcget(window.canvas.find_withtag("heart_lost")[0], "font"))
     assert len(sizes) > 1 and len(lost_fonts) == 1
+
+
+# --- R6: the game area is a graveyard ------------------------------------------
+
+def test_R6_graveyard_objects_are_drawn_around_the_player(window):
+    """R6: grass, gravestones, the iron fence and a dead tree are drawn in the torch light."""
+    press(window, "space")
+    for tag in ("grass", "grave", "fence", "tree", "obstacle"):
+        assert window.canvas.find_withtag(tag), f"nothing tagged {tag!r} is drawn"
+    assert not window.canvas.find_withtag("wall")
+    assert len(window.canvas.find_withtag("grave")) >= 3 * 2  # several headstones, each more than one shape
+
+
+def test_R6_title_screen_tells_of_the_graveyard(window):
+    """R6: the story on the title screen is set in a graveyard."""
+    story = " ".join(texts(window, "overlay"))
+    assert "graves" in story and "maze" not in story.lower()
+
+
+def test_R6_bumping_a_gravestone_names_it(window):
+    """R6: walking into a gravestone says so and costs no turn."""
+    press(window, "space", *route_keys(window.game, (3, 8)), "Up")  # (2,8) is a gravestone
+    turn = window.game.turn
+    press(window, "Up")
+    assert window.game.turn == turn
+    assert texts(window, "hud_message") == ["A gravestone blocks your way."]
+
+
+# --- R7: hazards ------------------------------------------------------------------
+
+def test_R7_open_graves_and_thorns_are_drawn_when_in_light(window):
+    """R7: hazards are drawn (so they can be avoided) once the torch reaches them."""
+    press(window, "space")
+    assert not window.canvas.find_withtag("hazard")
+    press(window, *route_keys(window.game, (3, 10)))
+    assert window.canvas.find_withtag("open_grave") and window.canvas.find_withtag("thorn_bush")
+    assert set(window.canvas.find_withtag("open_grave")) <= set(window.canvas.find_withtag("hazard"))
+
+
+def test_R7_stepping_into_an_open_grave_shows_hurt_screen(window):
+    """R7: a hazard costs a life: HURT! names the open grave, shows the player, plays the life-lost tone."""
+    press(window, "space", "Right", "Right", "Right", "Right")
+    assert window.state == window.CAUGHT and window.game.hurt_by == "open grave"
+    assert texts(window, "caught_title") == ["HURT!"]
+    assert any("You tumble into an open grave!" in t for t in texts(window, "overlay"))
+    assert window.canvas.find_withtag("flame") and not window.canvas.find_withtag("reaper_eyes")
+    assert heart_counts(window, "big_heart", "big_heart_lost") == (2, 1)
+    assert window.sound.played[-1] == ("life_lost",)
+
+
+def test_R7_r_resumes_after_a_hazard(window):
+    """R7: R after a hazard puts both figures back on their start tiles, with one heart less."""
+    press(window, "space", "Right", "Right", "Right", "Right", "r")
+    game = window.game
+    assert window.state == window.PLAYING
+    assert (game.player, game.reaper) == (game.maze.player_start, game.maze.reaper_start)
+    assert heart_counts(window) == (2, 1)
+
+
+def test_R7_game_over_by_hazard_names_it(window):
+    """R7: losing the last life in an open grave says so on the GAME OVER screen."""
+    press(window, "space", *CATCH, "r", *CATCH, "r", "Right", "Right", "Right", "Right")
+    assert window.game.status is Status.LOST
+    assert texts(window, "ending_title") == ["GAME OVER"]
+    assert any("You fell into an open grave." in t for t in texts(window, "overlay"))
+    assert window.sound.played[-1] == ("caught",)
+
+
+def test_R2_every_sign_message_fits_inside_the_window(window):
+    """R2: even the longest signpost text is fully readable in the status panel."""
+    press(window, "space")
+    for pos in window.game.maze.signs:
+        reader = next(p for p in window.game.maze.neighbours(pos))
+        window.game.player = reader
+        window.redraw()
+        x0, _, x1, _ = window.canvas.bbox("sign_banner")
+        assert x0 >= 0 and x1 <= window.width, f"sign at {pos} overflows the window"

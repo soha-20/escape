@@ -10,7 +10,7 @@ import tkinter as tk
 
 from .game import MAX_LIVES, Game, Outcome, Status
 from .maze import WARNING
-from .render import reaper_line
+from .render import GAME_OVER, LIFE_LOST, bump_line, reaper_line
 from .sound import Sound
 
 TILE = 52            # pixels per maze tile
@@ -30,10 +30,18 @@ KEY_DIRECTIONS = {
 
 # palette
 BLACK = "#000000"
-FLOOR = "#7a6450"
-FLOOR_LINE = "#4a3a2c"
-WALL = "#7d8396"
-MORTAR = "#30333c"
+GRASS = "#4f7a3c"        # R6: the graveyard lawn
+GRASS_DARK = "#2f4a25"
+GRASS_BLADE = "#7fae5a"
+DIRT = "#6b4f33"
+DIRT_DARK = "#3e2c1c"
+PIT = "#050304"
+STONE = "#a7adb6"        # gravestones
+STONE_DARK = "#555b66"
+IRON = "#1a1a20"         # fences and the gate
+BARK = "#5a4030"         # dead trees and signposts
+THORN = "#c23a4a"        # R7: thorn bushes, bright enough to stand out on the grass
+THORN_TIP = "#ffb3b3"
 PLANK = "#e0cf9f"
 RED = "#ff3b3b"
 GREEN = "#3ddc84"
@@ -220,7 +228,7 @@ class GameWindow:
         if direction is None:
             return
         outcome = self.game.move(direction)
-        self.message = "A cold stone wall blocks your way." if outcome is Outcome.WALL else ""
+        self.message = bump_line(self.game.bumped) if outcome is Outcome.WALL else ""
         if self.game.status is Status.CAUGHT:
             self.state = self.CAUGHT
         elif self.game.status is not Status.PLAYING:
@@ -241,10 +249,10 @@ class GameWindow:
         cv = self.canvas
         cv.delete("all")
         self.origin = camera_origin(self.game)
-        self._draw_maze()
+        self._draw_graveyard()
         game = self.game
         self._draw_sprite(game.player, draw_player)
-        if game.visible(game.reaper) or game.status in (Status.LOST, Status.CAUGHT):
+        if game.visible(game.reaper) or game.hurt_by == "reaper":
             self._draw_sprite(game.reaper, draw_reaper)
         self._draw_danger_border()
         self._draw_hud()
@@ -263,61 +271,139 @@ class GameWindow:
         x, y = self._xy(pos)
         painter(self.canvas, x + TILE / 2, y + TILE / 2, SCALE)
 
-    def _draw_maze(self):
-        maze, cv = self.game.maze, self.canvas
+    def _draw_graveyard(self):
+        """R6: grass everywhere, then whatever stands or lies on each lit tile."""
+        maze = self.game.maze
         top, left = self.origin
         for r in range(top, min(top + VIEW_ROWS, maze.height)):
             for c in range(left, min(left + VIEW_COLS, maze.width)):
                 light = light_level(self.game, (r, c))
                 if light == 0:
                     continue
-                x0, y0 = self._xy((r, c))
-                x1, y1 = x0 + TILE, y0 + TILE
                 pos = (r, c)
-                if maze.is_wall(pos):
-                    self._draw_wall(x0, y0, x1, y1, light, (r + c) % 2)
-                    if pos in maze.signs:
-                        self._draw_sign_plank(x0, y0, x1, y1, light, maze.signs[pos].kind)
-                else:
-                    variation = 0.9 + 0.1 * ((r * 31 + c * 17) % 3) / 2
-                    cv.create_rectangle(x0, y0, x1, y1, fill=shade(FLOOR, light * variation),
-                                        outline=shade(FLOOR_LINE, light), tags="floor")
-                    if pos == maze.exit:
-                        self._draw_exit(x0, y0, light)
+                x0, y0 = self._xy(pos)
+                self._draw_grass(x0, y0, light, r, c)
+                obstacle = maze.obstacle(pos)
+                hazard = maze.hazard(pos)
+                if pos in maze.signs:
+                    self._draw_signpost(x0, y0, light, maze.signs[pos].kind)
+                elif obstacle == "iron fence":
+                    self._draw_fence(x0, y0, light)
+                elif obstacle == "gravestone":
+                    self._draw_gravestone(x0, y0, light, (r * 7 + c * 3) % 3)
+                elif obstacle == "dead tree":
+                    self._draw_tree(x0, y0, light, (r + c) % 2)
+                elif hazard == "open grave":
+                    self._draw_open_grave(x0, y0, light)
+                elif hazard == "thorn bush":
+                    self._draw_thorns(x0, y0, light)
+                elif pos == maze.exit:
+                    self._draw_exit(x0, y0, light)
 
-    def _draw_wall(self, x0, y0, x1, y1, light, offset):
+    def _draw_grass(self, x0, y0, light, r, c):
         cv = self.canvas
-        cv.create_rectangle(x0, y0, x1, y1, fill=shade(WALL, light), outline=shade(MORTAR, light), tags="wall")
-        mortar = shade(MORTAR, light)
-        for i in range(1, 3):
-            y = y0 + i * TILE / 3
-            cv.create_line(x0, y, x1, y, fill=mortar, tags="wall")
-        for row in range(3):
-            shift = TILE / 4 if (row + offset) % 2 else TILE * 3 / 4
-            ya, yb = y0 + row * TILE / 3, y0 + (row + 1) * TILE / 3
-            cv.create_line(x0 + shift, ya, x0 + shift, yb, fill=mortar, tags="wall")
+        variation = 0.88 + 0.12 * ((r * 31 + c * 17) % 3) / 2
+        cv.create_rectangle(x0, y0, x0 + TILE, y0 + TILE, fill=shade(GRASS, light * variation),
+                            outline=shade(GRASS_DARK, light), tags=("grass", "floor"))
+        blade = shade(GRASS_BLADE, light)
+        for i, (gx, gy) in enumerate(((10, 40), (30, 16), (40, 34))):  # a few tufts
+            gx += (r * 5 + c * 11 + i * 7) % 9
+            cv.create_line(x0 + gx, y0 + gy, x0 + gx - 2, y0 + gy - 6, fill=blade, tags="grass")
+            cv.create_line(x0 + gx, y0 + gy, x0 + gx + 2, y0 + gy - 7, fill=blade, tags="grass")
 
-    def _draw_sign_plank(self, x0, y0, x1, y1, light, kind):
+    def _draw_fence(self, x0, y0, light):
+        """Iron railings: two rails and four bars with spear tips."""
+        cv = self.canvas
+        iron = shade(IRON, max(light, 0.5))
+        tags = ("fence", "obstacle")
+        for y in (y0 + 18, y0 + 40):
+            cv.create_line(x0, y, x0 + TILE, y, fill=iron, width=3, tags=tags)
+        for i in range(4):
+            x = x0 + 6.5 + i * 13
+            cv.create_line(x, y0 + 12, x, y0 + TILE - 4, fill=iron, width=3, tags=tags)
+            cv.create_polygon(x - 4, y0 + 13, x, y0 + 4, x + 4, y0 + 13, fill=iron, outline="", tags=tags)
+
+    def _draw_gravestone(self, x0, y0, light, style):
+        """A rounded headstone with a cross, on a little mound of earth."""
+        cv = self.canvas
+        tags = ("grave", "obstacle")
+        stone, edge = shade(STONE, light), shade(STONE_DARK, light)
+        cx = x0 + TILE / 2
+        cv.create_oval(x0 + 8, y0 + TILE - 14, x0 + TILE - 8, y0 + TILE - 2, fill=shade(DIRT, light),
+                       outline="", tags=tags)
+        half = (12, 14, 11)[style]
+        cv.create_rectangle(cx - half, y0 + 18, cx + half, y0 + TILE - 8, fill=stone, outline=edge, tags=tags)
+        cv.create_arc(cx - half, y0 + 6, cx + half, y0 + 30, start=0, extent=180, fill=stone, outline=edge,
+                      style="chord", tags=tags)
+        cv.create_rectangle(cx - half + 1, y0 + 17, cx + half - 1, y0 + 20, fill=stone, outline="", tags=tags)
+        cv.create_line(cx, y0 + 15, cx, y0 + 33, fill=edge, width=3, tags=tags)
+        cv.create_line(cx - 6, y0 + 21, cx + 6, y0 + 21, fill=edge, width=3, tags=tags)
+
+    def _draw_tree(self, x0, y0, light, flip):
+        """A dead tree: a crooked trunk and bare branches."""
+        cv = self.canvas
+        tags = ("tree", "obstacle")
+        bark = shade(BARK, max(light, 0.45))
+        s = -1 if flip else 1
+        cx = x0 + TILE / 2
+        cv.create_polygon(cx - 5, y0 + TILE - 3, cx - 2, y0 + 18, cx + 3, y0 + 18, cx + 6, y0 + TILE - 3,
+                          fill=bark, outline="", tags=tags)
+        for (ax, ay, bx, by, w) in ((0, 24, -16, 8, 3), (0, 20, 15, 4, 3), (-9, 14, -14, 2, 2),
+                                    (8, 10, 18, 12, 2), (0, 18, 2, 2, 2)):
+            cv.create_line(cx + s * ax, y0 + ay, cx + s * bx, y0 + by, fill=bark, width=w,
+                           capstyle="round", tags=tags)
+
+    def _draw_signpost(self, x0, y0, light, kind):
+        """R2: a wooden post with a glowing plaque."""
         cv = self.canvas
         glow = RED if kind == WARNING else GREEN
-        cv.create_rectangle(x0 + 3, y0 + 6, x1 - 3, y1 - 6, fill=shade(PLANK, light),
-                            outline=shade(glow, light), width=3, tags=("sign", f"sign_{kind}"))
-        cv.create_text((x0 + x1) / 2, (y0 + y1) / 2, text="!", fill=shade(glow, light),
-                       font=(FONT, 20, "bold"), tags=("sign", f"sign_{kind}"))
+        tags = ("sign", f"sign_{kind}", "obstacle")
+        cx = x0 + TILE / 2
+        cv.create_rectangle(cx - 3, y0 + 24, cx + 3, y0 + TILE - 2, fill=shade(BARK, max(light, 0.5)),
+                            outline="", tags=tags)
+        cv.create_rectangle(x0 + 4, y0 + 5, x0 + TILE - 4, y0 + 30, fill=shade(PLANK, light),
+                            outline=shade(glow, light), width=3, tags=tags)
+        cv.create_text(cx, y0 + 18, text="!", fill=shade(glow, light), font=(FONT, 16, "bold"), tags=tags)
+
+    def _draw_open_grave(self, x0, y0, light):
+        """R7: a freshly dug pit with the earth heaped behind it."""
+        cv = self.canvas
+        tags = ("hazard", "open_grave")
+        cv.create_oval(x0 + 6, y0 + 2, x0 + TILE - 6, y0 + 20, fill=shade(DIRT, light),
+                       outline=shade(DIRT_DARK, light), tags=tags)
+        cv.create_rectangle(x0 + 11, y0 + 13, x0 + TILE - 11, y0 + TILE - 4, fill=shade(DIRT_DARK, light),
+                            outline=shade(DIRT, light), width=2, tags=tags)
+        cv.create_rectangle(x0 + 15, y0 + 17, x0 + TILE - 15, y0 + TILE - 8, fill=PIT, outline="", tags=tags)
+
+    def _draw_thorns(self, x0, y0, light):
+        """R7: a tangle of dark red, spiky branches."""
+        cv = self.canvas
+        tags = ("hazard", "thorn_bush")
+        stem, spike = shade(THORN, max(light, 0.4)), shade(THORN_TIP, max(light, 0.4))
+        for (ax, ay, bx, by) in ((6, 44, 46, 10), (6, 12, 46, 42), (26, 4, 26, 48), (4, 28, 48, 26)):
+            cv.create_line(x0 + ax, y0 + ay, x0 + bx, y0 + by, fill=stem, width=3, tags=tags)
+            for t in (0.25, 0.5, 0.75):  # thorns along each branch
+                px, py = x0 + ax + (bx - ax) * t, y0 + ay + (by - ay) * t
+                cv.create_line(px - 4, py - 4, px + 4, py + 4, fill=spike, width=1, tags=tags)
+                cv.create_line(px - 4, py + 4, px + 4, py - 4, fill=spike, width=1, tags=tags)
 
     def _draw_exit(self, x0, y0, light):
+        """The way out: an iron cemetery gate in a green glow."""
         cv = self.canvas
         k = SCALE
         cx = x0 + TILE / 2
+        iron = shade(IRON, max(light, 0.6))
         cv.create_oval(x0 + 1, y0 + 1, x0 + TILE - 1, y0 + TILE - 1, fill=shade("#1e6b3a", light),
                        outline=shade(GREEN, light), width=2, tags="exit")
-        cv.create_rectangle(cx - 11 * k, y0 + 14 * k, cx + 11 * k, y0 + TILE - 2, fill=shade(DOOR, light),
-                            outline=shade("#3b2412", light), width=2, tags="exit")
-        cv.create_arc(cx - 11 * k, y0 + 3 * k, cx + 11 * k, y0 + 25 * k, start=0, extent=180,
-                      fill=shade(DOOR, light), outline=shade("#3b2412", light), width=2, tags="exit")
-        cv.create_oval(cx + 4 * k, y0 + 24 * k, cx + 8 * k, y0 + 28 * k, fill=shade("#ffd34d", light),
-                       outline="", tags="exit")
-        cv.create_text(cx, y0 + 18 * k, text="EXIT", fill=shade("#b8ffcf", light), font=(FONT, 8, "bold"),
+        for side in (-1, 1):  # stone posts
+            cv.create_rectangle(cx + side * 14 * k - 3, y0 + 8, cx + side * 14 * k + 3, y0 + TILE - 3,
+                                fill=shade(STONE, light), outline="", tags="exit")
+        cv.create_arc(cx - 11 * k, y0 + 6 * k, cx + 11 * k, y0 + 22 * k, start=0, extent=180, style="arc",
+                      outline=iron, width=2, tags="exit")
+        for i in range(5):
+            x = cx - 10 * k + i * 5 * k
+            cv.create_line(x, y0 + 13 * k, x, y0 + TILE - 4, fill=iron, width=2, tags="exit")
+        cv.create_text(cx, y0 + 26 * k, text="EXIT", fill=shade("#b8ffcf", light), font=(FONT, 8, "bold"),
                        tags="exit")
 
     def _draw_danger_border(self):
@@ -342,8 +428,15 @@ class GameWindow:
         for sign in game.signs_here():
             colour = RED if sign.kind == WARNING else GREEN
             icon = "⚠" if sign.kind == WARNING else "✔"
-            cv.create_text(self.width / 2, y, text=f'{icon}  Scrawled on the wall: "{sign.text}"',
-                           fill=colour, font=(FONT, 18, "bold"), tags=("hud", "sign_banner"))
+            item = cv.create_text(self.width / 2, y, text=f'{icon}  Painted on a signpost: "{sign.text}"',
+                                  fill=colour, font=(FONT, 18, "bold"), tags=("hud", "sign_banner"))
+            size = 18
+            while size > 10:  # shrink long signs until they fit the window
+                x0, _, x1, _ = cv.bbox(item)
+                if x1 - x0 <= self.width - 20:
+                    break
+                size -= 1
+                cv.itemconfigure(item, font=(FONT, size, "bold"))
             y += 30
         if self.message:
             cv.create_text(self.width / 2, top + 100, text=self.message, fill=GREY,
@@ -387,23 +480,28 @@ class GameWindow:
         draw_player(cv, mid + 250, 310, 4, tag="overlay")
         cv.create_text(mid, 80, text="ESCAPE THE GRIM REAPER", fill=RED,
                        font=(TITLE_FONT, 44), tags=("overlay", "title"))
-        cv.create_text(mid, 250, text="You wake on cold stone in the dark.\n"
+        cv.create_text(mid, 250, text="You wake among the graves at midnight.\n"
                                       "Something breathes behind you.\n\n"
-                                      "Read the signs on the walls.\nFind the EXIT. Don't look back.",
+                                      "Read the signposts. Mind the open graves and thorns.\n"
+                                      "Find the EXIT gate. Don't look back.",
                        fill="#e0e0ea", font=(FONT, 15), justify="center", tags="overlay")
         cv.create_text(mid, self.map_height + 70, text="Press any key to begin", fill="#ffe066",
                        font=(FONT, 18, "bold"), tags=("overlay", "blink"))
 
     def _draw_caught(self):
-        """R4: a life is lost; show the hearts left and wait for R."""
+        """R4 / R7: a life is lost to the reaper (CAUGHT!) or a hazard (HURT!); wait for R."""
         cv, game = self.canvas, self.game
         mid = self.width / 2
         self._shade_screen("#a8432f")
-        draw_reaper(cv, mid, 375, 5, tag="overlay")
-        cv.create_text(mid, 75, text="CAUGHT!", fill=ORANGE, font=(TITLE_FONT, 54),
+        by_reaper = game.hurt_by == "reaper"
+        if by_reaper:
+            draw_reaper(cv, mid, 375, 5, tag="overlay")
+        else:
+            draw_player(cv, mid, 385, 5, tag="overlay")
+        cv.create_text(mid, 75, text="CAUGHT!" if by_reaper else "HURT!", fill=ORANGE, font=(TITLE_FONT, 54),
                        tags=("overlay", "caught_title"))
         left = f"{game.lives} {'life' if game.lives == 1 else 'lives'} left"
-        cv.create_text(mid, 145, text=f"The Reaper's cold hand grabs you! You lose a life. ({left})",
+        cv.create_text(mid, 145, text=f"{LIFE_LOST[game.hurt_by or 'reaper']} ({left})",
                        fill="#e0e0ea", font=(FONT, 16), tags="overlay")
         self._draw_big_hearts(205)
         cv.create_text(mid, self.map_height + 70, text="Press R to resume    Esc to quit",
@@ -421,7 +519,7 @@ class GameWindow:
             draw_reaper(cv, mid, 375, 5, tag="overlay")
             self._draw_big_hearts(205)
             title, colour = "GAME OVER", RED
-            sub = "The Reaper's hand closes on your shoulder."
+            sub = GAME_OVER[game.hurt_by or "reaper"]
         else:
             title, colour, sub = "YOU GAVE UP", GREY, "The Reaper is patient."
         cv.create_text(mid, 75, text=title, fill=colour, font=(TITLE_FONT, 54),
