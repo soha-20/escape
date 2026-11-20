@@ -182,3 +182,23 @@ def test_R7_open_grave_costs_a_life_in_the_terminal():
     assert "Lives: ♥ ♥ ♡" in out
     assert _contains(beeps, LIFE_LOST_TONES)
     assert out.rstrip().endswith("You gave up. The Reaper is patient.")
+
+
+
+# --- R10: jumping in the terminal ----------------------------------------------
+
+def test_R10_j_jumps_over_an_open_grave_in_the_terminal():
+    """R10: j + Enter leaps the open grave east of the start without losing a life."""
+    _, out, beeps = play("d\nd\nd\nj\nq\n")
+    assert "You tumble into an open grave" not in out
+    assert "Turn 4" in out and "♡" not in out
+    assert not _contains(beeps, LIFE_LOST_TONES)
+
+
+def test_R10_failed_jump_and_low_hurdle_bump_are_explained():
+    """R10: the terminal says why a jump failed, and how to jump a low hurdle that blocks the way."""
+    _, out, _ = play("j\nq\n")
+    assert "There is nothing here to jump over." in out
+    keys = keys_to((3, 19)) + "d\n"  # walk up to the fallen headstone and bump into it
+    _, out, _ = play(keys + "q\n")
+    assert "A fallen headstone blocks your way. Type j to jump over it." in out

@@ -10,13 +10,13 @@ import os
 import sys
 
 from .game import Game, Outcome, Status
-from .render import INTRO, bump_line, screen
+from .render import INTRO, bump_line, jump_line, screen
 from .sound import Sound
 
 CLEAR = "\033[2J\033[H"
 
 MESSAGES = {
-    Outcome.INVALID: "Unknown command. Use w/a/s/d to move or q to quit.",
+    Outcome.INVALID: "Unknown command. Use w/a/s/d to move, j to jump or q to quit.",
     Outcome.PAUSED: "You are in the Reaper's grip. Type r to resume.",
 }
 
@@ -71,7 +71,9 @@ def main(argv=None, stdin=None, stdout=None, sound: Sound | None = None) -> int:
             line = "q"
         outcome = game.command(line)
         if outcome is Outcome.WALL:  # R6: say what is in the way
-            show(f"{bump_line(game.bumped)} You lose no time, but don't waste any either.")
+            show(f"{bump_line(game.bumped, 'Type j')} You lose no time, but don't waste any either.")
+        elif outcome is Outcome.NO_JUMP:  # R10: say why
+            show(jump_line(game.jump_blocked))
         else:
             show(MESSAGES.get(outcome, ""))
         if outcome is Outcome.RESUMED:

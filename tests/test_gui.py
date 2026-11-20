@@ -8,8 +8,8 @@ import tkinter as tk
 import pytest
 
 from escape_game.game import Game, Status
-from escape_game.gui import (GREEN, HEART_LOST, RED, TILE, VIEW_COLS, VIEW_ROWS, GameWindow, camera_origin,
-                             danger_colour, heartbeat_period_ms, light_level, shade)
+from escape_game.gui import (GREEN, HEART_LOST, MOONLIGHT, RED, TILE, TORCH_REACH, VIEW_COLS, VIEW_ROWS, GameWindow,
+                             camera_origin, danger_colour, heartbeat_period_ms, light_level, shade, torch_glow)
 
 
 class FakeSound:
@@ -110,11 +110,9 @@ def test_R1_player_figure_is_drawn_on_the_player_tile(window):
     assert len(window.canvas.find_withtag("player")) > 5  # a figure, not a single character
 
 
-def test_R1_reaper_figure_appears_only_when_in_torch_light(window):
-    """R1: the reaper is drawn (cloak, skull, scythe, eyes) once it is close enough to see."""
+def test_R1_reaper_figure_is_drawn_whenever_it_is_in_view(window):
+    """R1 (changed by R9): the reaper (cloak, skull, scythe, eyes) is drawn as soon as it is on screen."""
     press(window, "space")
-    assert not window.canvas.find_withtag("reaper")
-    press(window, "Left")  # player (1,4), reaper (1,2): now in view
     assert window.canvas.find_withtag("reaper")
     assert len(window.canvas.find_withtag("reaper_eyes")) == 2
 
@@ -189,20 +187,20 @@ def test_R1_animation_tick_runs(window):
 # --- R1: pure drawing helpers ---------------------------------------------
 
 def test_R1_torch_light_is_brightest_next_to_the_player():
-    """R1: tiles fade with distance from the torch; unseen tiles are pitch black."""
+    """R1 (changed by R9): tiles near the torch are brightest; far tiles are moonlit, never black."""
     game = Game()
     near = light_level(game, (1, 6))
     far = light_level(game, (1, 8))
-    assert 1 >= near > far > 0
-    assert light_level(game, (9, 15)) == 0
+    assert 1 >= near > far >= MOONLIGHT
+    assert light_level(game, (9, 15)) == MOONLIGHT
 
 
-def test_R1_remembered_tiles_stay_dimly_lit():
-    """R1: tiles you walked past stay faintly visible behind you."""
+def test_R1_tiles_behind_the_player_stay_moonlit():
+    """R1 (changed by R9): tiles you walked past are as bright as any other tile away from the torch."""
     game = Game()
     for _ in range(4):
         game.move("right")
-    assert 0 < light_level(game, (1, 2)) < light_level(game, (1, 8))
+    assert light_level(game, (1, 2)) == MOONLIGHT == light_level(game, (14, 25))
 
 
 def test_R1_heart_beats_faster_as_the_reaper_closes_in():
@@ -404,10 +402,8 @@ def test_R6_bumping_a_gravestone_names_it(window):
 # --- R7: hazards ------------------------------------------------------------------
 
 def test_R7_open_graves_and_thorns_are_drawn_when_in_light(window):
-    """R7: hazards are drawn (so they can be avoided) once the torch reaches them."""
+    """R7 (changed by R9): hazards on screen are drawn from the start, so they can be avoided."""
     press(window, "space")
-    assert not window.canvas.find_withtag("hazard")
-    press(window, *route_keys(window.game, (3, 10)))
     assert window.canvas.find_withtag("open_grave") and window.canvas.find_withtag("thorn_bush")
     assert set(window.canvas.find_withtag("open_grave")) <= set(window.canvas.find_withtag("hazard"))
 
@@ -418,7 +414,9 @@ def test_R7_stepping_into_an_open_grave_shows_hurt_screen(window):
     assert window.state == window.CAUGHT and window.game.hurt_by == "open grave"
     assert texts(window, "caught_title") == ["HURT!"]
     assert any("You tumble into an open grave!" in t for t in texts(window, "overlay"))
-    assert window.canvas.find_withtag("flame") and not window.canvas.find_withtag("reaper_eyes")
+    overlay = set(window.canvas.find_withtag("overlay"))
+    assert overlay & set(window.canvas.find_withtag("flame"))          # the big figure is the player...
+    assert not overlay & set(window.canvas.find_withtag("reaper_eyes"))  # ...not the reaper
     assert heart_counts(window, "big_heart", "big_heart_lost") == (2, 1)
     assert window.sound.played[-1] == ("life_lost",)
 
@@ -450,3 +448,32 @@ def test_R2_every_sign_message_fits_inside_the_window(window):
         window.redraw()
         x0, _, x1, _ = window.canvas.bbox("sign_banner")
         assert x0 >= 0 and x1 <= window.width, f"sign at {pos} overflows the window"
+
+
+# --- R9: the whole view is lit -------------------------------------------------
+
+def test_R9_every_tile_in_view_is_at_least_moonlit():
+    """R9: wherever the player stands, no tile on screen is darker than moonlight."""
+    game = Game()
+    for player in [game.maze.player_start, (7, 27), (13, 3), game.maze.exit]:
+        game.player = player
+        top, left = camera_origin(game)
+        for r in range(top, top + VIEW_ROWS):
+            for c in range(left, left + VIEW_COLS):
+                assert light_level(game, (r, c)) >= MOONLIGHT
+
+
+def test_R9_torch_glow_is_strongest_at_the_player_and_fades_out():
+    """R9: the torch only adds a warm glow around the player."""
+    assert torch_glow((5, 5), (5, 5)) == 1
+    assert 1 > torch_glow((5, 5), (5, 6)) > torch_glow((5, 5), (5, 7)) > 0
+    assert torch_glow((5, 5), (5, 5 + TORCH_REACH)) == 0
+
+
+def test_R9_the_whole_view_is_drawn_not_just_near_the_torch(window):
+    """R9: every tile on screen has ground drawn on it, at the start and far from it."""
+    press(window, "space")
+    assert len(window.canvas.find_withtag("floor")) >= VIEW_ROWS * VIEW_COLS
+    window.game.player = (13, 20)
+    window.redraw()
+    assert len(window.canvas.find_withtag("floor")) >= VIEW_ROWS * VIEW_COLS

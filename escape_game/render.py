@@ -1,7 +1,7 @@
 """Turn a Game into text for the terminal. Pure functions: no printing."""
 
 from .game import MAX_LIVES, Game, Status
-from .maze import GUIDE, HAZARDS, OBSTACLES, WARNING
+from .maze import GUIDE, HAZARDS, LOW_HURDLES, OBSTACLES, WARNING
 
 RESET = "\033[0m"
 STYLES = {
@@ -11,6 +11,7 @@ STYLES = {
     "wall": "\033[37m",       # fences and gravestones
     "tree": "\033[33m",       # dead trees: dull yellow-brown
     "hazard": "\033[1;91m",   # R7: open graves and thorn bushes, bold bright red
+    "low": "\033[1;96m",      # R10: low hurdles to jump, bold bright cyan
     "dim": "\033[2;90m",
     WARNING: "\033[1;91m",    # bold bright red
     GUIDE: "\033[1;92m",      # bold bright green
@@ -21,15 +22,16 @@ INTRO = (
     "You wake among the graves of a fenced graveyard at midnight.\n"
     "Something breathes behind you. The Grim Reaper has come for you.\n"
     "Find the gate out. Read the signposts. Mind the open graves (O) and thorns (*).\n"
+    "Leap over coffins (C), fallen headstones (=) and even open graves: face them and type j.\n"
     "Don't look back.\n"
 )
 
-CONTROLS = "Move: w/a/s/d + Enter    Quit: q"
+CONTROLS = "Move: w/a/s/d + Enter    Jump: j + Enter    Quit: q"
 RESUME_CONTROLS = "Resume: r + Enter    Quit: q"
 
 FULL_HEART, EMPTY_HEART = "♥", "♡"
 
-MARKS = {name: mark for mark, name in {**OBSTACLES, **HAZARDS}.items()}  # "gravestone" -> "+", ...
+MARKS = {name: mark for mark, name in {**OBSTACLES, **HAZARDS, **LOW_HURDLES}.items()}  # "gravestone" -> "+", ...
 
 LIFE_LOST = {  # R4 / R7: what the player reads when a life is lost, by cause
     "reaper": "The Reaper's cold hand grabs you! You lose a life.",
@@ -43,10 +45,23 @@ GAME_OVER = {  # R3 / R7: the last life
 }
 
 
-def bump_line(obstacle: str) -> str:
-    """R6: "A gravestone blocks your way." / "An iron fence blocks your way." """
-    article = "An" if obstacle[0] in "aeiou" else "A"
-    return f"{article} {obstacle} blocks your way."
+def a_or_an(name: str) -> str:
+    return f"{'An' if name[0] in 'aeiou' else 'A'} {name}"
+
+
+def bump_line(obstacle: str, jump_hint: str = "") -> str:
+    """R6: "A gravestone blocks your way." R10: a low hurdle adds how to jump it, e.g. "Press ↑ to jump over it." """
+    line = f"{a_or_an(obstacle)} blocks your way."
+    if jump_hint and obstacle in LOW_HURDLES.values():
+        line += f" {jump_hint} to jump over it."
+    return line
+
+
+def jump_line(blocked: str) -> str:
+    """R10: why a jump did not happen (Game.jump_blocked)."""
+    if blocked == "nothing":
+        return "There is nothing here to jump over."
+    return f"You can't land there: {a_or_an(blocked).lower()} is in the way."
 
 
 def paint(text: str, style: str, color: bool) -> str:
@@ -54,26 +69,26 @@ def paint(text: str, style: str, color: bool) -> str:
 
 
 def tile(game: Game, pos, color: bool) -> str:
+    """One map character. Since R9 there is no fog: every tile is shown."""
     maze = game.maze
-    visible = game.visible(pos)
-    if not visible and pos not in game.seen:
-        return " "
-    if visible and pos == game.player:
+    if pos == game.player:
         return paint("@", "player", color)
-    if visible and pos == game.reaper:
+    if pos == game.reaper:
         return paint("R", "reaper", color)
     if pos in maze.signs:
-        sign = maze.signs[pos]
-        return paint("!", sign.kind if visible else "dim", color)
+        return paint("!", maze.signs[pos].kind, color)
     if pos == maze.exit:
-        return paint("E", "exit" if visible else "dim", color)
+        return paint("E", "exit", color)
     obstacle = maze.obstacle(pos)
     if obstacle:
-        return paint(MARKS[obstacle], ("tree" if obstacle == "dead tree" else "wall") if visible else "dim", color)
+        return paint(MARKS[obstacle], "tree" if obstacle == "dead tree" else "wall", color)
     hazard = maze.hazard(pos)
     if hazard:
-        return paint(MARKS[hazard], "hazard" if visible else "dim", color)
-    return paint(".", "dim", color) if visible else " "
+        return paint(MARKS[hazard], "hazard", color)
+    low = maze.low_hurdle(pos)
+    if low:
+        return paint(MARKS[low], "low", color)
+    return paint(".", "dim", color)
 
 
 def draw_map(game: Game, color: bool = True) -> str:

@@ -8,18 +8,19 @@ def rows(game):
     return draw_map(game, color=False).splitlines()
 
 
-def test_R1_player_is_drawn_and_far_tiles_are_hidden():
-    """R1: the player sees themselves and only the nearby maze (fog of war)."""
+def test_R1_player_is_drawn_and_far_tiles_are_shown():
+    """R1 (changed by R9): the player is drawn, and so is the far end of the graveyard: no fog of war."""
     game = Game()
     lines = rows(game)
     assert lines[1][5] == "@"
-    assert lines[9][15] == " "  # exit is far away and unseen
+    assert lines[15][6] == "E"  # the exit, far away, is already on the map
+    assert " " not in "".join(lines)  # no blacked-out tiles
 
 
-def test_R1_reaper_drawn_only_when_in_view():
-    """R1: the reaper appears on screen once it is within sight."""
+def test_R1_reaper_drawn_wherever_it_is():
+    """R1 (changed by R9): the reaper is on the map from the start, not only once it is close."""
     game = Game()
-    assert "R" not in draw_map(game, color=False)
+    assert rows(game)[1][1] == "R"
     game.move("left")  # player (1,4), reaper (1,2)
     assert rows(game)[1][2] == "R"
 
@@ -146,10 +147,7 @@ def test_R6_bump_line_names_the_obstacle():
 def test_R7_hazards_are_drawn_in_red():
     """R7: open graves 'O' and thorn bushes '*' are marked in red so the player can avoid them."""
     game = Game()
-    walk_to(game, (2, 9))
-    assert rows(game)[1][9] == "O" and rows(game)[1][13] == " "  # (1,13) not yet seen
-    walk_to(game, (2, 11))
-    assert rows(game)[1][13] == "*"
+    assert rows(game)[1][9] == "O" and rows(game)[1][13] == "*"  # R9: shown from the start
     coloured = draw_map(game, color=True)
     assert "\033[1;91mO" in coloured and "\033[1;91m*" in coloured
 
@@ -171,3 +169,44 @@ def test_R7_game_over_by_hazard_has_its_own_line():
     game.move("right")
     text = screen(game, color=False)
     assert "A thorn bush held you fast. The Reaper only had to wait. GAME OVER." in text
+
+
+# --- R9: the whole screen is shown --------------------------------------------
+
+def test_R9_the_text_map_shows_the_whole_graveyard_from_the_first_turn():
+    """R9: no part of the map is dark: every row is as wide as the graveyard and nothing is blank."""
+    game = Game()
+    lines = rows(game)
+    assert len(lines) == game.maze.height
+    assert all(len(line) == game.maze.width and " " not in line for line in lines)
+
+
+# --- R10: low hurdles and the jump in the terminal ------------------------------
+
+def test_R10_low_hurdles_are_drawn_with_their_marks_in_cyan():
+    """R10: fallen headstones '=' and coffins 'C' are on the map, coloured so they stand out."""
+    game = Game()
+    lines = rows(game)
+    assert lines[3][20] == "=" and lines[9][27] == "C"
+    assert "\033[1;96m=" in draw_map(game, color=True)
+
+
+def test_R10_bumping_a_low_hurdle_says_how_to_jump_it():
+    """R10: the bump message for a low hurdle adds a hint; other obstacles get none."""
+    from escape_game.render import bump_line
+    assert bump_line("coffin", "Press ↑") == "A coffin blocks your way. Press ↑ to jump over it."
+    assert bump_line("gravestone", "Press ↑") == "A gravestone blocks your way."
+
+
+def test_R10_jump_line_says_why_no_jump_happened():
+    """R10: a failed jump is explained."""
+    from escape_game.render import jump_line
+    assert jump_line("nothing") == "There is nothing here to jump over."
+    assert jump_line("gravestone") == "You can't land there: a gravestone is in the way."
+    assert jump_line("open grave") == "You can't land there: an open grave is in the way."
+
+
+def test_R10_controls_and_intro_mention_the_jump():
+    """R10: the terminal tells the player that j jumps."""
+    from escape_game.render import CONTROLS, INTRO
+    assert "j + Enter" in CONTROLS and "type j" in INTRO

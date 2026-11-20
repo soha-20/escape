@@ -64,14 +64,24 @@ def shade(colour: str, factor: float) -> str:
     return "#%02x%02x%02x" % (int(r * factor), int(g * factor), int(b * factor))
 
 
+MOONLIGHT = 0.8     # R9: every tile in view is at least this bright
+TORCH_REACH = 3.5   # tiles; the torch glow fades to nothing at this distance
+
+
+def torch_glow(centre, pos) -> float:
+    """R9: how strongly the torch warms a tile: 1 under the player, fading to 0 at TORCH_REACH."""
+    dist = math.hypot(pos[0] - centre[0], pos[1] - centre[1])
+    return max(0.0, 1.0 - dist / TORCH_REACH)
+
+
 def light_level(game: Game, pos) -> float:
-    """How brightly a tile is lit by the player's torch: 1 next to them, fading out; 0 if never seen."""
-    if game.visible(pos):
-        dist = math.hypot(pos[0] - game.player[0], pos[1] - game.player[1])
-        return max(0.32, 1.0 - dist / 5.0)
-    if pos in game.seen:
-        return 0.16
-    return 0.0
+    """R9: moonlight everywhere, a little brighter near the torch. Never dark."""
+    return MOONLIGHT + (1 - MOONLIGHT) * torch_glow(game.player, pos)
+
+
+def in_view(origin, pos) -> bool:
+    """True if pos lies inside the camera view whose top-left tile is origin."""
+    return origin[0] <= pos[0] < origin[0] + VIEW_ROWS and origin[1] <= pos[1] < origin[1] + VIEW_COLS
 
 
 def heartbeat_period_ms(distance: int) -> int:
@@ -252,7 +262,7 @@ class GameWindow:
         self._draw_graveyard()
         game = self.game
         self._draw_sprite(game.player, draw_player)
-        if game.visible(game.reaper) or game.hurt_by == "reaper":
+        if in_view(self.origin, game.reaper):  # R9: no fog; the reaper is seen wherever it is on screen
             self._draw_sprite(game.reaper, draw_reaper)
         self._draw_danger_border()
         self._draw_hud()
@@ -272,14 +282,12 @@ class GameWindow:
         painter(self.canvas, x + TILE / 2, y + TILE / 2, SCALE)
 
     def _draw_graveyard(self):
-        """R6: grass everywhere, then whatever stands or lies on each lit tile."""
+        """R6: grass everywhere, then whatever stands or lies on each tile (all moonlit since R9)."""
         maze = self.game.maze
         top, left = self.origin
         for r in range(top, min(top + VIEW_ROWS, maze.height)):
             for c in range(left, min(left + VIEW_COLS, maze.width)):
                 light = light_level(self.game, (r, c))
-                if light == 0:
-                    continue
                 pos = (r, c)
                 x0, y0 = self._xy(pos)
                 self._draw_grass(x0, y0, light, r, c)

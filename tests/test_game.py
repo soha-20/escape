@@ -102,15 +102,10 @@ def test_R1_q_quits_the_game():
     assert game.status is Status.QUIT
 
 
-def test_R1_fog_of_war_reveals_tiles_near_the_player():
-    """R1: only tiles within the view radius are visible; seen tiles are remembered."""
+def test_R1_nothing_is_hidden_by_fog_any_more():
+    """R1 (changed by R9 in round 4): the rules no longer keep a fog of war; the whole graveyard is shown."""
     game = Game()
-    assert game.visible((1, 8)) and not game.visible((1, 9))
-    assert (1, 9) not in game.seen
-    game.move("right")
-    assert (1, 9) in game.seen
-    game.move("left")
-    assert (1, 9) in game.seen and not game.visible((1, 9))
+    assert not hasattr(game, "seen") and not hasattr(game, "visible")
 
 
 # --- R2: following signs vs ignoring them ----------------------------------
@@ -287,14 +282,12 @@ def test_R4_uppercase_r_and_resume_method_also_work():
     assert game.resume() is Outcome.RESUMED and game.status is Status.PLAYING
 
 
-def test_R4_turns_and_seen_tiles_carry_over_after_resume():
-    """R4: the turn counter keeps counting and explored tiles stay remembered."""
+def test_R4_turns_carry_over_after_resume():
+    """R4: the turn counter keeps counting. (Explored tiles were remembered too until R9 removed the fog.)"""
     game = Game()
     get_caught(game)
-    seen = set(game.seen)
     game.resume()
     assert game.turn == 2
-    assert seen <= game.seen
 
 
 def test_R4_r_while_playing_is_not_a_move():
