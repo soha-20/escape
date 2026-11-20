@@ -29,4 +29,14 @@ py -m pytest
 - Tests must never play real sound. Inject a fake beep function or fake sound object instead.
 - Window tests use hidden tkinter windows and check tagged canvas items; after a visual change, also look at a screenshot of the real window.
 - When a requirement or decision changes, update `spec.md` in the same commit as the code.
+- When a new requirement changes what an earlier one means (as R4 changed R3), adapt the earlier tests and keep their requirement ID. Don't delete them, and say so in the commit message.
+- Record each decision that had real alternatives in `docs/decisions/` as a Y-statement. Number the files `0001-…`, `0002-…`, and so on.
 - Commit in small steps. Each commit message says what changed and why.
+- Never undo or amend a commit, and never force-push, unless the user explicitly asks. Ask before pushing.
+- Handoff files (`HANDOFF-round-<n>.md`) are written only when the user asks. Leave them, and edits to this file, uncommitted until the user has reviewed them.
+- If a requirement is unclear, ask the user before writing code.
+
+## Tooling notes
+- **Screenshots:** with Windows display scaling, `PIL.ImageGrab` coordinates are off. Grab the full screen, multiply window coordinates by `image.width / root.winfo_screenwidth()`, then crop. Pillow is for screenshots only, never a game dependency. Keep screenshot scripts in the session scratchpad.
+- **Escapes in shell heredocs:** inline Python in heredocs can turn `\n` and `\u` escapes into real characters. Use the Edit tool for source lines that contain escapes, such as the BOM strip in `game.py`.
+- Symbols such as ♥ ♡ → print as `?` when `--text` output is piped (cp1252). Set `PYTHONIOENCODING=utf-8` to see them.
