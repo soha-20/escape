@@ -13,3 +13,7 @@ Nowadays escape games are not prevailing so much and most of the users do not ha
 
 - R4: So, there will be 3 lives in this game. The user will press R to resume.
 - R5: Show three red hearts and lessen each one once the user loses until they lost all of their lives.
+
+## Round 3 Requirements
+- R6: Change the game area from maze to agrave yard.
+- R7: The hurdles should be the grave or other objects that could hurt the player. 
