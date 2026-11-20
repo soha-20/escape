@@ -17,3 +17,9 @@ Nowadays escape games are not prevailing so much and most of the users do not ha
 ## Round 3 Requirements
 - R6: Change the game area from maze to agrave yard.
 - R7: The hurdles should be the grave or other objects that could hurt the player. 
+
+## Round 4 Requirements
+- R8: the game interface is not eye-catching and the graphics look low quality, the grip reaper and the player do not have motions while moving. Grim reaper does not look scary at all.
+- R9: The screen does only show one side bright when player is moving, the rest is dark which is not good.
+- R10: Hurdles should be added so that the player can actually jump form it using up arrow key.
+- R11: High used graphics can make the game look scary.

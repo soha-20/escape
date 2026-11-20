@@ -19,6 +19,12 @@ This document describes how the program meets each requirement in `problem.md`.
 | Text version (round 2) | Lives and hearts apply to `--text` too: `r` + Enter resumes |
 | Game area (round 3) | The maze is replaced by a **new, more open graveyard** (open fields of graves, not a re-skin of the round-1 corridors) |
 | Hurdles (round 3) | **Gravestones, iron fences and dead trees block** the way at no cost. **Open graves and thorn bushes are hazards:** stepping on one **costs a life** |
+| IDs (round 4) | The two unnumbered round-4 bullets are **R10** (jumping) and **R11** (scary graphics) |
+| Graphics (round 4) | **Richer tkinter drawing**, still standard library only: figures slide between tiles with walk cycles, a floating, tattered, scarier Reaper, drifting mist |
+| Lighting (round 4) | **The whole view is moonlit.** No dark fog of war; the torch only adds a warm glow around the player. The Reaper is visible whenever it is on screen |
+| Jump key (round 4) | **Up arrow = jump forward** (in the direction the player faces), landing 2 tiles on. **W/A/S/D and ← ↓ →** move; W moves north. One jump = one turn |
+| Jumpable (round 4) | **New low hurdles** (fallen headstones, coffins) block walking but can be jumped; **open graves and thorn bushes can be jumped too**. Gravestones, fences, trees and signposts still block |
+| Reaper and low hurdles (round 4) | **The Reaper glides over low hurdles**, as over hazards (decision 0004) |
 
 *Revision (2026-11-18):* the first version drew the game as text in the terminal. The product owner found it unattractive: no real figures, and the colours didn't show. They chose a tkinter window over a terminal-only game, even though `problem.md` mentions the terminal. The game is still started from the terminal, and the terminal version is still available.
 
@@ -26,11 +32,13 @@ This document describes how the program meets each requirement in `problem.md`.
 
 *Revision (2026-11-19, round 3):* R6 replaces the maze with a graveyard, and R7 makes graves and other objects the hurdles, some of which hurt. The product owner chose a **new, more open layout** over re-skinning the old corridors, and chose **"graves block, some hazards hurt"** over hurdles that only block, hurdles that hurt when bumped, or hazards that only cost a turn. This changes R1 (what a blocked move says), R2 (signs and dead ends in open ground) and R4 (a life can also be lost to a hazard). The earlier tests were adapted, not deleted.
 
+*Revision (2026-11-19, round 4):* R8 and R11 ask for better, scarier graphics with figures that move; R9 removes the dark screen; R10 adds jumpable hurdles on the Up arrow. This changes R1 (the Up arrow no longer moves north, and the torch-light fog of war is gone from both front ends) and R7 (hazards can be jumped). The earlier tests were adapted, not deleted. See `docs/decisions/0005-…` and `0006-…`.
+
 Where `problem.md` and the answers above left a detail open, this spec picks a default, marked *(default)*. Each one can be changed.
 
 ## Overview
 
-The player wakes at midnight in a fenced graveyard, carrying a torch, and the Grim Reaper is close behind. The player must reach the graveyard's exit gate before the reaper reaches them. Gravestones, iron fences and dead trees stand in the way, and open graves and thorn bushes hurt anyone who steps on them. Signposts warn the player away from fenced dead-end plots, or point the way out.
+The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, and the Grim Reaper is close behind. The player must reach the graveyard's exit gate before the reaper reaches them. Gravestones, iron fences and dead trees stand in the way, and open graves and thorn bushes hurt anyone who steps on them. Fallen headstones and coffins lie low enough to jump over (R10). Signposts warn the player away from fenced dead-end plots, or point the way out.
 
 ### The graveyard (R6)
 
@@ -38,16 +46,16 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
 ###############################
 #R   P   O   *   *    ++#     #
 #       +   +   +   + T+# + + #
-#  T                  +!#     #
+#  T                = +!#     #
 #     +   +   +   +        +  #
 #           *  O    O + #    +#
 #  +    +*  +   +   + T #######
 #            T        +      !#
 ############################ ##
-#            O #!   O         #
+#            O #!   O      C  #
 #  +   +   +      +   +   +   #
-#              #    *        *#
-################ T  +   +     #
+#              #    *      = *#
+################ T  +   +  C  #
 # +  #! * +    #              #
 #                 +   +   +   #
 #  + #E  +  O  #!      *  O   #
@@ -66,6 +74,8 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
   | `!` | signpost (R2) | blocks |
   | `O` | open grave | **hazard**: costs a life (R7) |
   | `*` | thorn bush | **hazard**: costs a life (R7) |
+  | `=` | fallen headstone | **low hurdle**: blocks walking, can be jumped (R10) |
+  | `C` | coffin | **low hurdle**: blocks walking, can be jumped (R10) |
   | `P`, `R`, `E` | player start, reaper start, exit gate | walkable |
 
 * **Shape** *(default)*. There are two open fields, each 7 rows tall, with rows of graves, trees and hazards scattered across them. A small yard in the south-west holds the exit gate.
@@ -77,15 +87,16 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
     * a crypt yard next to the exit
 * The player starts at `P`, the reaper at `R`, which is **4 steps** behind.
 * The shortest route to `E` that avoids every hazard is **59 moves**. Hazards are placed so that walking around them on that route costs no extra steps, and the reaper stays exactly 4 steps behind the whole way.
+* **Low hurdles (R10)** *(default)*: four of them, at (3,20), (9,27), (11,27) and (12,27), lie on open grass beside the safe route. They don't lengthen the walking route (still 59 moves, Reaper exactly 4 behind), but each one gives a jump that lands 2 walking steps closer to the exit, so a jump there gains the player one step on the Reaper.
 * As before, each step into a wrong place and back costs 2 steps of the gap. Walking to the back of any fenced plot gets the player caught. One hesitation is survivable.
 
 ## R1 — The game starts and the player must escape from the Grim Reaper
 
-* **Start.** `py -m escape_game` opens the game window on a title screen. The screen shows "ESCAPE THE GRIM REAPER", a large drawn Reaper and the player, a moonlit graveyard and a short story that warns about open graves and thorns. Any key starts the chase.
-* **Figures.** Both characters are drawn from shapes, not letters:
+* **Start.** `py -m escape_game` opens the game window on a title screen. The screen shows "ESCAPE THE GRIM REAPER", a large animated Reaper and the player, a moonlit graveyard in drifting mist, and a short story that warns about open graves and thorns and explains the jump. Any key starts the chase.
+* **Figures.** Both characters are drawn from shapes, not letters. Since round 4 they move and animate (R8, R11):
   * **Player:** an adventurer in a blue tunic holding a torch whose flame flickers.
-  * **Grim Reaper:** a black hooded cloak, a skull face with glowing red eyes that pulse, a bony hand and a scythe.
-* **Controls.** Arrow keys or `W`/`A`/`S`/`D` move with a **single keypress**. `Esc` closes the game. After a catch, `R` resumes (R4). After the game ends, `R` plays again *(default)*.
+  * **Grim Reaper:** a tall, floating, tattered black cloak, a skull in a deep hood with glowing red eyes that pulse, bony fingers and a large scythe.
+* **Controls.** `W`/`A`/`S`/`D` and the `←` `↓` `→` arrow keys move with a **single keypress**. *Changed in round 4 (R10):* the `↑` arrow **jumps** instead of moving north; `W` still moves north. `Esc` closes the game. After a catch, `R` resumes (R4). After the game ends, `R` plays again *(default)*.
 * **Turn order.**
   1. The player moves one tile.
   2. If the player stepped onto the reaper, they are caught (R3).
@@ -93,12 +104,12 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
   4. If the player stepped onto a hazard, they lose a life (R7). The reaper does not move after that.
   5. Otherwise the reaper moves one tile along a shortest path to the player. This is a breadth-first search through every walkable tile, **including hazards**, which the reaper glides over unharmed *(default)*. Ties are broken in a fixed order, so the game is deterministic.
   6. The game checks whether the player has been caught (see R3 and R4).
-* **Turns that don't count.** Moving into a gravestone, fence, tree or signpost doesn't use a turn, and the reaper doesn't move. A message names what is in the way, e.g. "An iron fence blocks your way." or "A gravestone blocks your way." *(default)*. Other keys are ignored.
+* **Turns that don't count.** Moving into a gravestone, fence, tree, signpost or low hurdle doesn't use a turn, and the reaper doesn't move. A message names what is in the way, e.g. "An iron fence blocks your way." or "A gravestone blocks your way." *(default)*. Other keys are ignored.
 * **Display.**
-  * **Camera:** a 15 × 9-tile view (52 px tiles) that follows the player and never shows anything outside the graveyard.
-  * **Torch light (fog of war):** tiles within 3 of the player are lit, brightest next to the torch and fading with distance. Tiles seen earlier stay faintly visible. Tiles never seen are pitch black, so the player has to rely on the signs *(default)*. Every tile next to the player is always lit, so a hazard can't be stepped on unseen.
-  * **Tiles:** see R6 and R7. **Exit:** an iron cemetery gate with a green glow and the label "EXIT".
-  * **The reaper** is drawn only when it is inside the torch light.
+  * **Camera:** a 15 × 9-tile view (52 px tiles) that follows the player and never shows anything outside the graveyard. Since round 4 it scrolls smoothly (R8).
+  * **Light:** *changed in round 4 (R9):* the whole view is lit by moonlight; see R9. (Rounds 1–3 had a torch-light fog of war.)
+  * **Tiles:** see R6, R7 and R10. **Exit:** an iron cemetery gate with a green glow and the label "EXIT".
+  * **The reaper** is drawn whenever it is inside the camera view (R9).
   * **Status panel (HUD):** three life hearts (R5) whose red hearts beat faster as the reaper approaches, the turn number, and a status line ("Distant footsteps…" in grey, "Something cold breathes down your neck…" in orange, "RUN! The Reaper is right behind you!" in red).
   * **Danger:** when the reaper is 3 steps or fewer away, a red border flashes around the view.
 * **Sound (tension).** After each turn the game plays a heartbeat based on the reaper's distance (shortest-path steps):
@@ -113,8 +124,8 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
 * **Win.** Reaching the exit shows a "YOU ESCAPED!" screen with the turn count.
 * **Fallback.** If the window can't open (no tkinter, no display), the program says so and starts the terminal version instead.
 * **Terminal version (`--text`).** This is the original text version:
-  * It draws the graveyard with `@` (player), `R` (reaper), `E`, and the layout marks from R6 (`#`, `+`, `T`, `!`, `O`, `*`), using ANSI colours (`--no-color` for plain text). Hazards are red.
-  * Each move is `w`/`a`/`s`/`d` + Enter, and `q` quits.
+  * It draws the **whole** graveyard (R9: no fog) with `@` (player), `R` (reaper), `E`, and the layout marks from R6 and R10 (`#`, `+`, `T`, `!`, `O`, `*`, `=`, `C`), using ANSI colours (`--no-color` for plain text). Hazards are red, low hurdles yellow.
+  * Each move is `w`/`a`/`s`/`d` + Enter, `j` + Enter jumps forward (R10), and `q` quits.
   * Unknown commands cost no turn.
   * It ignores the BOM (byte-order mark) that Windows PowerShell adds to piped input.
 
@@ -187,7 +198,7 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
 ## R7 — Graves and other objects are the hurdles; some can hurt
 
 * **Blocking hurdles:** gravestones, iron fences, dead trees and signposts. Walking into one costs no turn and no life. The message names the object (R1).
-* **Hazards:** open graves (`O`) and thorn bushes (`*`). They are walkable, but **stepping onto one costs a life**:
+* **Hazards:** open graves (`O`) and thorn bushes (`*`). They are walkable, but **stepping onto one costs a life**. *Changed in round 4 (R10):* jumping over one is safe.
   * The turn counts. The player stays on the hazard, and the reaper does not move.
   * With lives left, the game goes to the same paused state as a catch (`Status.CAUGHT`). `Game.hurt_by` names what took the life: `"reaper"`, `"open grave"` or `"thorn bush"`. **R** resumes with both figures back on their start tiles, exactly as after a catch (R4, decision 0001).
   * With the last life, the game is lost (GAME OVER), as in R3.
@@ -200,6 +211,45 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
 * **The reaper is not hurt by hazards** and glides over them *(default)*, so cutting a corner through a hazard is never an option for the player, but it is for the reaper. On the safe route this gives the reaper no advantage (see R6). Why: `docs/decisions/0004-reaper-glides-over-hazards.md`.
 * Why a hazard reuses the catch state instead of a new one: `docs/decisions/0003-hazards-reuse-the-life-lost-state.md`.
 
+## R8 — An eye-catching interface; figures that move; a scary Reaper
+
+*(Window only. The `--text` version keeps its letters.)*
+
+* **Motion between tiles.** The game stays turn-based, but each turn is animated: the player and the Reaper **slide** from their old tile to the new one over about 0.2 s (5 frames of 40 ms), and the camera scrolls with the player. A key pressed during a slide finishes the slide at once and takes the next move, so the game never lags behind the keyboard *(default)*.
+* **Walk cycle (player).** While sliding, the legs and arms swing and the body bobs. The player faces left or right according to the last sideways move and is drawn mirrored when facing left. Standing still, the player breathes (a slight bob) and the torch flame flickers.
+* **The Reaper moves too.** It floats above the ground (a slow up-and-down hover, with a shadow beneath it). Its tattered hem flutters, its cloak leans into the direction it moves, and its scythe sways.
+* **Polish.** Tiles are drawn with light and dark sides (gravestones with an "RIP" inscription and cracks, gnarled trees, shaded iron), and the HUD has a framed panel with a controls line.
+* **Testable parts.** Pure helpers (`ease`, `tween`, `walk_pose`, `hover`) compute the animation; window tests check that the figures change between frames and end on the right tile. Tests turn the slide off (`animate=False`) unless they test it.
+
+## R9 — The whole screen is lit, not just one side
+
+* *Problem:* in rounds 1–3 only tiles within 3 of the torch were lit; the rest of the view was dark or black. Near the camera's edge this left one side of the screen bright and the rest dark.
+* **Moonlight everywhere.** Every tile in the camera view is drawn clearly, in a cool, moonlit colour (never darker than 80 % brightness). There is no fog of war and no "seen tiles" memory any more, in either front end (decision 0006).
+* **Torch glow.** Tiles near the player are brighter and warmer (orange-tinted), fading out over about 3 tiles. The glow moves with the player.
+* **The Reaper and hazards** are drawn whenever they are in the camera view.
+* **Text version:** the whole graveyard map is printed every turn.
+* *Changes R1:* the fog-of-war rules of R1 are gone. Their tests were adapted to check the new light.
+
+## R10 — Low hurdles the player can jump with the Up arrow
+
+* **Low hurdles** (`=` fallen headstone, `C` coffin) lie on the grass. Walking into one costs no turn, like any obstacle, and the message adds a hint: *"A coffin blocks your way. Press ↑ to jump over it."* (`--text`: *"Type j to jump over it."*).
+* **Facing.** The player faces the direction of their last move attempt (a bump counts). At the start they face right (east), toward the Reaper-free side *(default)*.
+* **Jump** (`↑` in the window, `j` + Enter in `--text`): the player leaps over the tile in front of them and lands on the tile after it, **2 tiles in one turn**.
+  * Jumpable: low hurdles, open graves and thorn bushes (a hazard jumped over does no harm).
+  * The landing tile must be ground the player could walk on: not an obstacle, not another low hurdle, not a hazard.
+  * If the tile in front is plain grass (or anything not jumpable), or the landing tile is not safe, nothing happens and no turn is used. The message says why: *"There is nothing here to jump over."* or *"You can't land there: a gravestone is in the way."*
+  * A jump takes **one turn**; then the same checks as a move follow (R1 turn order): landing on (or leaping through) the Reaper's tile is a catch, landing on the exit wins, and otherwise the Reaper takes its one step.
+* **The Reaper glides over low hurdles** (as over hazards, decision 0004). So jumping is how the player gains ground: every jump covers 2 tiles while the Reaper covers 1.
+* **Window:** the player rises in an arc (about 0.6 tile high) with a shadow on the ground. A low hurdle is drawn as a cracked headstone lying flat (tags `low_hurdle`, `fallen_headstone`) or a wooden coffin with a cross (tags `low_hurdle`, `coffin`). Sound: no new tone *(default)*.
+* **Logic:** `Game.jump()`, `Game.facing`, `Game.jumped` (the last turn was a jump), `Outcome.NO_JUMP` with `Game.jump_blocked` (`"nothing"` or what is in the way). `Maze.low_hurdle(pos)`; `avoid_hazards=True` paths (the player on foot) also avoid low hurdles.
+
+## R11 — Graphics that make the game look scary
+
+* **The Reaper** is about 1.6 tiles tall, so it towers over the player. It has a deep, empty hood around a skull with sunken sockets, **glowing red eyes with a red halo**, bony fingers around a long scythe with a curved, gleaming blade, and a tattered hem that frays into wisps of black smoke. A dark red aura pulses on the ground under it, faster as it gets closer to the player.
+* **Atmosphere:** banks of pale **mist drift** slowly across the graveyard. The title screen has a full moon behind bare branches, a blood-red title with a dark shadow, and the animated Reaper.
+* **Danger:** when the Reaper is 3 steps or fewer away, the red border pulses (as before) and the view edges glow red.
+* Tags for tests: `reaper` (all of it), `reaper_eyes`, `reaper_glow`, `scythe`, `aura`, `mist`.
+
 ## Program structure
 
 ```
@@ -208,11 +258,11 @@ escape_game/
   __main__.py    # command-line entry: options, opens the window (or the --text loop)
   maze.py        # fixed graveyard layout, obstacles, hazards, sign definitions, parsing, pathfinding (BFS)
   game.py        # Game state: player/reaper positions, move(), turn order, hazards, lives, resume, win/lose
-  gui.py         # tkinter window: figures, torch light, signs, HUD, animation, screens
+  gui.py         # tkinter window: figures, moonlight and torch glow, signs, HUD, motion and animation, screens
   render.py      # text drawing for --text mode, and the shared status-line wording
   sound.py       # heartbeat/win/lose tones; beep function injectable for tests
 tests/
-  test_*.py      # pytest; every test names the requirement it checks (R1–R7)
+  test_*.py      # pytest; every test names the requirement it checks (R1–R11)
 docs/decisions/   # decision records (Y-statements), numbered 0001, 0002, ...
 ```
 
