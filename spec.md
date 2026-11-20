@@ -12,8 +12,15 @@ This document describes how the program meets each requirement in `problem.md`.
 | Maze | One fixed, hand-designed maze (the game is meant to be short) |
 | Reaper speed | The reaper moves one step after every player move |
 | Tension | Visible chase plus a heartbeat **sound** that speeds up as the reaper closes in |
+| Lives (round 2) | **3 lives.** Being caught costs one life; the game is lost when the last one goes |
+| Resume (round 2) | After a catch the game pauses; **R** resumes with player and reaper **both back on their start tiles** |
+| After the last life (round 2) | GAME OVER; **R** starts a fresh game with 3 lives |
+| Lost hearts (round 2) | Stay in place as **grey empty hearts** (♥ ♥ ♡) |
+| Text version (round 2) | Lives and hearts apply to `--text` too: `r` + Enter resumes |
 
 *Revision (2026-11-18):* the first version drew the game as text in the terminal. The product owner found it unattractive: no real figures, and the colours didn't show. They chose a tkinter window over a terminal-only game, even though `problem.md` mentions the terminal. The game is still started from the terminal, and the terminal version is still available.
+
+*Revision (2026-11-19, round 2):* R4 and R5 add three lives and a row of hearts. R3 changes meaning: a catch now costs a life, and the game is lost only when the last life is gone. See `docs/decisions/`.
 
 Where `problem.md` and the answers above left a detail open, this spec picks a default, marked *(default)*. Each one can be changed.
 
@@ -48,26 +55,26 @@ The player wakes up in a dark maze, carrying a torch, and the Grim Reaper is clo
 * **Figures.** Both characters are drawn from shapes, not letters:
   * **Player:** an adventurer in a blue tunic holding a torch whose flame flickers.
   * **Grim Reaper:** a black hooded cloak, a skull face with glowing red eyes that pulse, a bony hand and a scythe.
-* **Controls.** Arrow keys or `W`/`A`/`S`/`D` move with a **single keypress**. `Esc` closes the game. After a game ends, `R` plays again *(default)*.
+* **Controls.** Arrow keys or `W`/`A`/`S`/`D` move with a **single keypress**. `Esc` closes the game. After a catch, `R` resumes (R4). After the game ends, `R` plays again *(default)*.
 * **Turn order.**
   1. The player moves one tile.
   2. If the player is now on the exit, the player **wins**. The reaper does not move after that.
   3. Otherwise the reaper moves one tile along a shortest path to the player (breadth-first search through floor tiles; ties are broken in a fixed order so the game is deterministic).
-  4. The game checks whether the player has been caught (see R3).
+  4. The game checks whether the player has been caught (see R3 and R4).
 * **Turns that don't count.** Moving into a wall doesn't use a turn. The reaper doesn't move, and the message "A cold stone wall blocks your way." appears *(default)*. Other keys are ignored.
 * **Display.**
   * **Camera:** a 15 × 9-tile view (52 px tiles) that follows the player and never shows anything outside the maze.
   * **Torch light (fog of war):** tiles within 3 of the player are lit, brightest next to the torch and fading with distance. Tiles seen earlier stay faintly visible. Tiles never seen are pitch black, so the player has to rely on the signs *(default)*.
   * **Walls:** stone bricks. **Floor:** flagstones. **Exit:** a wooden door with a green glow and the label "EXIT".
   * **The reaper** is drawn only when it is inside the torch light.
-  * **Status panel (HUD):** the turn number, a heart that beats faster as the reaper approaches, and a status line ("Distant footsteps…" in grey, "Something cold breathes down your neck…" in orange, "RUN! The Reaper is right behind you!" in red).
+  * **Status panel (HUD):** three life hearts (R5) whose red hearts beat faster as the reaper approaches, the turn number, and a status line ("Distant footsteps…" in grey, "Something cold breathes down your neck…" in orange, "RUN! The Reaper is right behind you!" in red).
   * **Danger:** when the reaper is 3 steps or fewer away, a red border flashes around the view.
 * **Sound (tension).** After each turn the game plays a heartbeat based on the reaper's distance (shortest-path steps):
   * 6 or more steps: one slow, low beat
   * 4–5 steps: two beats
   * 3 steps or fewer: three fast, high beats
 
-  The game also plays a falling tone when the player is caught and a rising tone when the player escapes.
+  The game also plays a short two-note drop when a life is lost *(default)*, a long falling tone when the last life is lost, and a rising tone when the player escapes.
   * On Windows sound uses `winsound.Beep`. Elsewhere it falls back to the terminal bell (`\a`).
   * In the window, sounds play on a background thread so the window never freezes.
   * `--mute` turns sound off. If sound fails, the game keeps running silently.
@@ -90,11 +97,34 @@ The player wakes up in a dark maze, carrying a torch, and the Grim Reaper is clo
 
 ## R3 — The player loses once the Grim Reaper catches them
 
+*Changed in round 2:* a catch costs one life (R4). The player **loses the game** when they are caught with their last life. Everything below describes a catch. The GAME OVER screen appears only after the last life is gone.
+
 * The player is **caught** when the player and the reaper are on the same tile *(default: being next to the reaper is still safe)*. This happens if:
   * the reaper steps onto the player's tile, or
   * the player steps onto the reaper's tile (walking back into it).
-* When caught, the window shows a "GAME OVER" screen under a blood-red moon, with a large Reaper and the line "The Reaper's hand closes on your shoulder." The falling tone plays.
+* When caught with the last life, the window shows a "GAME OVER" screen under a blood-red moon, with a large Reaper, three grey empty hearts and the line "The Reaper's hand closes on your shoulder." The falling tone plays.
 * Once the game is over, movement keys are ignored. Only `R` (play again) and `Esc` (quit) work.
+
+## R4 — Three lives; R resumes
+
+* A new game starts with **3 lives** (`MAX_LIVES = 3` in `game.py`).
+* **Catch with lives left.** Being caught (as in R3) takes one life. If at least one life remains, the game enters the **caught** state (`Status.CAUGHT`):
+  * The player and the reaper stay where the catch happened, so the player can see it. Moves are ignored.
+  * The window shows a "CAUGHT!" screen with the hearts left and "Press R to resume    Esc to quit". The life-lost tone plays.
+  * The terminal version prints "The Reaper's cold hand grabs you! You lose a life." and "Resume: r + Enter    Quit: q".
+* **Resume.** Pressing `R` (`r` + Enter in `--text`) puts the player and the reaper **back on their start tiles**, the same 4 steps apart, and the chase goes on. Then:
+  * The turn counter keeps counting, so the win screen shows the total turns *(default)*.
+  * Tiles the player has already seen stay remembered *(default)*.
+  * The heartbeat plays again.
+* **Last life.** A catch with the last life ends the game: `Status.LOST` and the R3 GAME OVER screen. From there, `R` starts a fresh game with 3 lives in the window. The terminal version ends, as before.
+* `R` does nothing while playing (it is not a move key). In `--text`, `r` while playing is an unknown command and costs no turn. `q` still quits while caught.
+* Why both figures reset rather than only the reaper: see `docs/decisions/0001-resume-from-start.md`.
+
+## R5 — Three red hearts that empty as lives are lost
+
+* **Window.** The status panel shows a row of three hearts at the left. Each remaining life is a red ♥ (tag `heart`) that beats with the heartbeat. Each lost life is a grey empty ♡ (tag `heart_lost`) in the same place, so the row reads ♥ ♥ ♥ → ♥ ♥ ♡ → ♥ ♡ ♡. The CAUGHT! and GAME OVER screens show the same row, large (tags `big_heart` and `big_heart_lost`). GAME OVER shows ♡ ♡ ♡.
+* **Terminal.** Each screen shows `Lives: ♥ ♥ ♡`, with the full hearts in red when colour is on.
+* Lost hearts come back only with a new game (`R` after GAME OVER).
 
 ## Program structure
 
@@ -103,12 +133,13 @@ escape_game/
   __init__.py
   __main__.py    # command-line entry: options, opens the window (or the --text loop)
   maze.py        # fixed maze layout, sign definitions, parsing, pathfinding (BFS)
-  game.py        # Game state: player/reaper positions, move(), turn order, win/lose
+  game.py        # Game state: player/reaper positions, move(), turn order, lives, resume, win/lose
   gui.py         # tkinter window: figures, torch light, signs, HUD, animation, screens
   render.py      # text drawing for --text mode, and the shared status-line wording
   sound.py       # heartbeat/win/lose tones; beep function injectable for tests
 tests/
-  test_*.py      # pytest; every test names the requirement it checks (R1/R2/R3)
+  test_*.py      # pytest; every test names the requirement it checks (R1–R5)
+docs/decisions/   # decision records (Y-statements), numbered 0001, 0002, ...
 ```
 
 The game logic (`game.py`, `maze.py`) does no input/output, so tests can call it directly. `gui.py` only draws the game and turns key presses into `Game.move()` calls. Its lighting and camera helpers are pure functions. The window tests open hidden windows, send key presses to them, and inspect the tagged canvas items. They never play sound.
