@@ -18,10 +18,18 @@ class Recorder:
         self.beeps.append((freq, ms))
 
 
-def winning_keys():
+def keys_to(goal=None):
+    """Enter-separated keys along the shortest hazard-free way from the start (R7)."""
     game = Game()
-    path = game.maze.shortest_path(game.player, game.maze.exit)
+    path = game.maze.shortest_path(game.player, goal or game.maze.exit, avoid_hazards=True)
     return "".join(KEY_FOR[(b[0] - a[0], b[1] - a[1])] + "\n" for a, b in zip(path, path[1:]))
+
+
+def winning_keys():
+    return keys_to()
+
+
+FIRST_WARNING = (4, 23)  # the tile in front of the "Wanna get stuck?" signpost
 
 
 def play(keys, *extra_args):
@@ -44,7 +52,7 @@ def test_R1_full_game_escape_through_the_cli():
     """R1: typing the right moves escapes the reaper and plays the escape tune."""
     code, out, beeps = play(winning_keys())
     assert code == 0
-    assert "You escaped the Reaper in 44 turns!" in out
+    assert "You escaped the Reaper in 59 turns!" in out
     assert beeps[-len(ESCAPED_TONES):] == ESCAPED_TONES
 
 
@@ -68,15 +76,15 @@ def test_R1_wall_and_typo_messages_are_shown():
 
 
 def test_R2_sign_text_appears_at_the_fork():
-    """R2: arriving next to the first sign shows 'Wanna get stuck?' in the warning colour."""
-    _, out, _ = play("d\nd\nd\nd\nq\n")
+    """R2: arriving next to the first signpost shows 'Wanna get stuck?' in the warning colour."""
+    _, out, _ = play(keys_to(FIRST_WARNING) + "q\n")
     assert 'Scrawled on the wall in red: "Wanna get stuck?' in out
 
 
 def test_R2_warning_signs_are_red_and_guides_green_when_colour_is_on():
     """R2: the warning text is printed in red (ANSI 91)."""
     out = io.StringIO()
-    main(["--text"], stdin=io.StringIO("d\nd\nd\nd\nq\n"), stdout=out, sound=Sound(enabled=False))
+    main(["--text"], stdin=io.StringIO(keys_to(FIRST_WARNING) + "q\n"), stdout=out, sound=Sound(enabled=False))
     assert '\033[1;91m"Wanna get stuck?' in out.getvalue()
 
 

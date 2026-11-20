@@ -71,10 +71,15 @@ def lose_all_lives(win):
     press(win, "space", *CATCH, "r", *CATCH, "r", *CATCH)
 
 
-def route_keys(game):
+def route_keys(game, goal=None):
+    """Arrow keys along the shortest hazard-free way (R7) to goal (default: the exit)."""
     names = {(0, 1): "Right", (0, -1): "Left", (1, 0): "Down", (-1, 0): "Up"}
-    path = game.maze.shortest_path(game.player, game.maze.exit)
+    path = game.maze.shortest_path(game.player, goal or game.maze.exit, avoid_hazards=True)
     return [names[(b[0] - a[0], b[1] - a[1])] for a, b in zip(path, path[1:])]
+
+
+FIRST_WARNING = (4, 23)  # the tile in front of the "Wanna get stuck?" signpost
+FIRST_GUIDE = (7, 28)    # the tile in front of the guide to the gate between the fields
 
 
 # --- R1: the game starts; player and reaper are real figures ---------------
@@ -227,8 +232,8 @@ def test_R1_shade_darkens_colours():
 # --- R2: signs on the walls -------------------------------------------------
 
 def test_R2_sign_message_appears_in_red_at_the_first_fork(window):
-    """R2: standing at the first fork shows "Wanna get stuck?" as a red warning."""
-    press(window, "space", "Right", "Right", "Right", "Right")
+    """R2: standing at the first plot's entrance shows "Wanna get stuck?" as a red warning."""
+    press(window, "space", *route_keys(window.game, FIRST_WARNING))
     banner = window.canvas.find_withtag("sign_banner")
     assert len(banner) == 1
     assert "Wanna get stuck?" in window.canvas.itemcget(banner[0], "text")
@@ -237,16 +242,15 @@ def test_R2_sign_message_appears_in_red_at_the_first_fork(window):
 
 def test_R2_guide_sign_message_is_green(window):
     """R2: a guide sign's message is shown in green."""
-    keys = route_keys(window.game)
-    press(window, "space", *keys[:12])  # (5,13): the second fork, under a guide sign
-    assert window.game.player == (5, 13)
+    press(window, "space", *route_keys(window.game, FIRST_GUIDE))
+    assert window.game.player == FIRST_GUIDE
     banner = window.canvas.find_withtag("sign_banner")
     assert window.canvas.itemcget(banner[0], "fill") == GREEN
 
 
 def test_R2_signs_are_drawn_on_the_walls_with_a_glow(window):
     """R2: signs are drawn as glowing plaques on the wall once in view."""
-    press(window, "space", "Right", "Right")
+    press(window, "space", *route_keys(window.game, (4, 21)))  # two tiles short of the signpost
     assert window.canvas.find_withtag("sign_warning")
     assert not window.canvas.find_withtag("sign_banner")  # not standing next to it yet
 

@@ -1,9 +1,9 @@
-"""The fixed maze, its wall signs, and pathfinding.
+"""The fixed graveyard (R6), its hurdles and hazards (R7), its signs (R2), and pathfinding.
 
-Legend for LAYOUT:
-    #  wall          (space) floor
-    P  player start  R  reaper start  E  exit
-    !  wall carrying a sign (its text lives in SIGNS)
+The class keeps its round-1 name, Maze. Legend for LAYOUT:
+    (space) grass        P  player start  R  reaper start  E  exit gate
+    #  iron fence        +  gravestone    T  dead tree     !  signpost (text in SIGNS)
+    O  open grave        *  thorn bush    (hazards: walkable, but they cost the player a life)
 """
 
 from collections import deque
@@ -12,17 +12,26 @@ from dataclasses import dataclass
 Pos = tuple[int, int]  # (row, column)
 
 LAYOUT = """\
-#########!##########!######
-#R   P         ##        ##
-######### ####### ## ### ##
-######### ####### ## ### ##
-######### ###!### ## ### ##
-#########         ## ### ##
-############# ########## ##
-############# ####       !#
-############# ########## ##
-############# #E         ##
-###########################"""
+###############################
+#R   P   O   *   *    + #     #
+#       +   +   +   + T # + + #
+#  T                  +!#     #
+#     +   +   +   +        +  #
+#           *  O    O + #    +#
+#  +    +*  +   +   + T #######
+#            T        +      !#
+############################ ##
+#            O #!   O         #
+#  +   +   +      +   +   +   #
+#              #    *        *#
+################ T  +   +     #
+# +  #! * +    #              #
+#                 +   +   +   #
+#  + #E  +  O  #!      *  O   #
+###############################"""
+
+OBSTACLES: dict[str, str] = {"#": "iron fence", "+": "gravestone", "T": "dead tree", "!": "signpost"}
+HAZARDS: dict[str, str] = {"O": "open grave", "*": "thorn bush"}
 
 # Directions in a fixed order; BFS uses this order, which makes the reaper deterministic.
 DIRECTIONS: dict[str, Pos] = {
@@ -44,10 +53,11 @@ class Sign:
 
 
 SIGNS: dict[Pos, Sign] = {
-    (0, 9): Sign("Wanna get stuck? →", WARNING, "right"),
-    (4, 13): Sign("The air smells of freedom →  Don't look down.", GUIDE, "right"),
-    (0, 20): Sign("↓ Down there is where the last one died.", WARNING, "down"),
-    (7, 25): Sign("Keep falling ↓ the way out is close.", GUIDE, "down"),
+    (3, 23): Sign("Wanna get stuck? →", WARNING, "right"),
+    (7, 29): Sign("↓ The gate lies this way. Hurry.", GUIDE, "down"),
+    (9, 16): Sign("← The family plot. Nobody leaves it.", WARNING, "left"),
+    (15, 16): Sign("← Through the old yard. Mind the graves.", GUIDE, "left"),
+    (13, 6): Sign("← The crypt yard. Nobody came back.", WARNING, "left"),
 }
 
 
@@ -58,16 +68,20 @@ class Maze:
             raise ValueError("maze layout must be a non-empty rectangle")
         self.height = len(rows)
         self.width = len(rows[0])
+        self.layout = layout
         self.signs = dict(SIGNS if signs is None else signs)
-        self._walls: set[Pos] = set()
+        self._obstacles: dict[Pos, str] = {}
+        self._hazards: dict[Pos, str] = {}
         marks: dict[str, Pos] = {}
         sign_marks: set[Pos] = set()
         for r, row in enumerate(rows):
             for c, ch in enumerate(row):
-                if ch in "#!":
-                    self._walls.add((r, c))
+                if ch in OBSTACLES:
+                    self._obstacles[(r, c)] = OBSTACLES[ch]
                     if ch == "!":
                         sign_marks.add((r, c))
+                elif ch in HAZARDS:
+                    self._hazards[(r, c)] = HAZARDS[ch]
                 elif ch in "PRE":
                     if ch in marks:
                         raise ValueError(f"more than one {ch!r} in maze layout")
@@ -83,20 +97,35 @@ class Maze:
         self.reaper_start = marks["R"]
         self.exit = marks["E"]
 
-    def is_wall(self, pos: Pos) -> bool:
-        r, c = pos
-        return not (0 <= r < self.height and 0 <= c < self.width) or pos in self._walls
+    def obstacle(self, pos: Pos) -> str | None:
+        """The name of what blocks pos ("gravestone", "iron fence", ...), or None if it is walkable.
 
-    def neighbours(self, pos: Pos) -> list[Pos]:
-        """Open floor tiles orthogonally adjacent to pos, in DIRECTIONS order."""
+        Everything outside the grounds counts as the graveyard fence."""
+        r, c = pos
+        if not (0 <= r < self.height and 0 <= c < self.width):
+            return OBSTACLES["#"]
+        return self._obstacles.get(pos)
+
+    def is_wall(self, pos: Pos) -> bool:
+        """True if an obstacle blocks pos (the round-1 name: since R6 there are no walls, only objects)."""
+        return self.obstacle(pos) is not None
+
+    def hazard(self, pos: Pos) -> str | None:
+        """R7: "open grave" or "thorn bush" if stepping on pos hurts the player, else None."""
+        return self._hazards.get(pos)
+
+    def neighbours(self, pos: Pos, avoid_hazards: bool = False) -> list[Pos]:
+        """Walkable tiles orthogonally adjacent to pos, in DIRECTIONS order.
+
+        Hazards are walkable (the reaper glides over them); avoid_hazards leaves them out."""
         result = []
         for dr, dc in DIRECTIONS.values():
             nxt = (pos[0] + dr, pos[1] + dc)
-            if not self.is_wall(nxt):
+            if not self.is_wall(nxt) and not (avoid_hazards and nxt in self._hazards):
                 result.append(nxt)
         return result
 
-    def shortest_path(self, start: Pos, goal: Pos) -> list[Pos] | None:
+    def shortest_path(self, start: Pos, goal: Pos, avoid_hazards: bool = False) -> list[Pos] | None:
         """Tiles from start to goal inclusive (BFS), or None if unreachable."""
         came_from: dict[Pos, Pos | None] = {start: None}
         queue = deque([start])
@@ -107,7 +136,7 @@ class Maze:
                 while came_from[path[-1]] is not None:
                     path.append(came_from[path[-1]])
                 return path[::-1]
-            for nxt in self.neighbours(cur):
+            for nxt in self.neighbours(cur, avoid_hazards):
                 if nxt not in came_from:
                     came_from[nxt] = cur
                     queue.append(nxt)
@@ -118,7 +147,7 @@ class Maze:
         return None if path is None else len(path) - 1
 
     def signs_next_to(self, pos: Pos) -> list[Sign]:
-        """Signs on walls orthogonally adjacent to pos."""
+        """Signposts orthogonally adjacent to pos."""
         found = []
         for dr, dc in DIRECTIONS.values():
             sign = self.signs.get((pos[0] + dr, pos[1] + dc))

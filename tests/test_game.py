@@ -18,7 +18,12 @@ def walk(game, tiles):
 
 
 def solution(game):
-    return game.maze.shortest_path(game.player, game.maze.exit)[1:]
+    """The shortest way to the exit that steps on no hazard (R7)."""
+    return game.maze.shortest_path(game.player, game.maze.exit, avoid_hazards=True)[1:]
+
+
+def path_to(game, goal):
+    return game.maze.shortest_path(game.player, goal, avoid_hazards=True)[1:]
 
 
 # --- R1: the game starts and the player escapes the reaper -----------------
@@ -49,7 +54,7 @@ def test_R1_following_the_signs_escapes_the_reaper():
     walk(game, solution(game))
     assert game.status is Status.WON
     assert game.player == game.maze.exit
-    assert game.turn == 44
+    assert game.turn == 59
 
 
 def test_R1_reaper_does_not_move_after_player_escapes():
@@ -64,11 +69,12 @@ def test_R1_reaper_does_not_move_after_player_escapes():
 
 
 def test_R1_bumping_a_wall_does_not_use_a_turn():
-    """R1: walls block the player and the reaper gets no free step."""
+    """R1: obstacles (since R6: the graveyard fence) block the player and the reaper gets no free step."""
     game = Game()
     assert game.move("up") is Outcome.WALL
     assert game.turn == 0 and game.player == game.maze.player_start
     assert game.reaper == game.maze.reaper_start
+    assert game.bumped == "iron fence"
 
 
 @pytest.mark.parametrize("text,direction", [("w", "up"), ("S", "down"), (" a ", "left"), ("d\n", "right")])
@@ -108,40 +114,68 @@ def test_R1_fog_of_war_reveals_tiles_near_the_player():
 
 
 # --- R2: following signs vs ignoring them ----------------------------------
+# Adapted in round 3 (R6): the dead ends are fenced plots in open ground, not corridor branches.
 
-def fork_next_to(maze, sign_pos):
-    return next((sign_pos[0] + dr, sign_pos[1] + dc) for dr, dc in DIRECTIONS.values()
-                if not maze.is_wall((sign_pos[0] + dr, sign_pos[1] + dc)))
+def warned_plots(maze):
+    """(entrance tile, first tile inside, every tile of the plot) for each warning sign."""
+    plots = []
+    for pos, sign in maze.signs.items():
+        if sign.kind != WARNING:
+            continue
+        for dr, dc in DIRECTIONS.values():
+            entrance = (pos[0] + dr, pos[1] + dc)
+            if maze.is_wall(entrance):
+                continue
+            pr, pc = DIRECTIONS[sign.points]
+            first = (entrance[0] + pr, entrance[1] + pc)
+            if maze.is_wall(first):
+                continue
+            seen, stack = {entrance, first}, [first]
+            while stack:
+                for nxt in maze.neighbours(stack.pop()):
+                    if nxt not in seen:
+                        seen.add(nxt)
+                        stack.append(nxt)
+            seen.discard(entrance)
+            if maze.exit not in seen and maze.player_start not in seen:
+                plots.append((entrance, first, seen))
+    return plots
 
 
-@pytest.mark.parametrize("sign_pos", [p for p, s in Maze().signs.items() if s.kind == WARNING])
-def test_R2_ignoring_a_warning_sign_gets_the_player_caught(sign_pos):
-    """R2: exploring the branch a red sign warns about, then turning back, ends in capture."""
+def test_R2_following_the_safe_route_keeps_the_reaper_four_steps_behind():
+    """R2: walking the way the signs describe, the reaper never gains on the player."""
+    game = Game()
+    for nxt in solution(game)[:-1]:
+        walk(game, [nxt])
+        assert game.reaper_distance() == 4
+    walk(game, solution(game))
+    assert game.status is Status.WON
+
+
+@pytest.mark.parametrize("plot", range(3))
+def test_R2_ignoring_a_warning_sign_gets_the_player_caught(plot):
+    """R2: walking to the back of a plot a red sign warns about ends in capture."""
     game = Game()
     maze = game.maze
-    fork = fork_next_to(maze, sign_pos)
-    route = solution(game)
-    walk(game, route[: route.index(fork) + 1])
+    entrance, first, tiles = sorted(warned_plots(maze))[plot]
+    walk(game, path_to(game, entrance))
     assert game.status is Status.PLAYING
-    # go to the end of the warned branch ...
-    dr, dc = DIRECTIONS[maze.signs[sign_pos].points]
-    branch = []
-    nxt = (fork[0] + dr, fork[1] + dc)
-    while not maze.is_wall(nxt):
-        branch.append(nxt)
-        nxt = (nxt[0] + dr, nxt[1] + dc)
-    walk(game, branch)
-    assert game.status is Status.PLAYING
-    # ... it is a dead end, so the only way out is back past the reaper
-    walk(game, branch[-2::-1] + [fork] + route[route.index(fork) + 1:])
-    assert game.status is Status.CAUGHT and game.lives == 2  # R4: a catch costs a life
+    deepest = max(tiles, key=lambda t: len(maze.shortest_path(entrance, t, avoid_hazards=True) or []))
+    walk(game, path_to(game, deepest))
+    walk(game, path_to(game, entrance))
+    walk(game, solution(game))
+    assert game.status is Status.CAUGHT and game.hurt_by == "reaper"
+    assert game.lives == 2  # R4: a catch costs a life
 
 
 def test_R2_one_hesitation_step_is_survivable():
-    """R2: a single step into a wrong branch and straight back does not kill you."""
+    """R2: a single step into a warned plot and straight back does not kill you."""
     game = Game()
-    walk(game, [(1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 9)])
+    entrance, first, _ = next(p for p in warned_plots(game.maze)
+                              if game.maze.signs_next_to(p[0])[0].text.startswith("Wanna get stuck?"))
+    walk(game, path_to(game, entrance) + [first, entrance])
     assert game.status is Status.PLAYING
+    assert game.reaper_distance() == 2
     walk(game, solution(game))
     assert game.status is Status.WON
 
@@ -304,3 +338,94 @@ def test_R1_byte_order_mark_from_powershell_pipe_is_ignored():
     game = Game()
     assert game.command("﻿d\n") is Outcome.MOVED
     assert game.player == (1, 6)
+
+
+# --- R6: the game area is a graveyard ---------------------------------------
+
+@pytest.mark.parametrize("layout,obstacle", [("#####\n#RP+#\n#  E#\n#####", "gravestone"),
+                                             ("#####\n#RPT#\n#  E#\n#####", "dead tree"),
+                                             ("#####\n#RP #\n#  E#\n#####", "iron fence")])
+def test_R6_bumping_an_obstacle_names_it_and_costs_no_turn(layout, obstacle):
+    """R6: gravestones, trees and fences block the way; the game says which one."""
+    game = Game(Maze(layout, signs={}))
+    direction = "up" if obstacle == "iron fence" else "right"
+    assert game.move(direction) is Outcome.WALL
+    assert game.bumped == obstacle
+    assert game.turn == 0 and game.player == (1, 2) and game.reaper == (1, 1)
+    game.move("down")
+    assert game.bumped is None
+
+
+# --- R7: hazards hurt the player ---------------------------------------------
+
+def test_R7_stepping_into_an_open_grave_costs_a_life():
+    """R7: the open grave four steps east of the start takes a life; the reaper stays put."""
+    game = Game()
+    assert game.maze.hazard((1, 9)) == "open grave"
+    walk(game, [(1, 6), (1, 7), (1, 8)])
+    reaper = game.reaper
+    assert game.move("right") is Outcome.MOVED
+    assert game.status is Status.CAUGHT
+    assert game.hurt_by == "open grave"
+    assert game.lives == 2 and game.turn == 4
+    assert game.player == (1, 9) and game.reaper == reaper
+
+
+def test_R7_thorn_bushes_also_cost_a_life():
+    """R7: thorn bushes hurt just like open graves."""
+    game = Game(Maze("#######\n#R P*E#\n#######", signs={}))
+    game.move("right")
+    assert game.status is Status.CAUGHT and game.hurt_by == "thorn bush" and game.lives == 2
+
+
+def test_R7_hazard_on_the_last_life_loses_the_game():
+    """R7: a hazard on the last life is GAME OVER, like the reaper's catch (R3)."""
+    game = Game(Maze("#######\n#R P*E#\n#######", signs={}), lives=1)
+    game.move("right")
+    assert game.status is Status.LOST and game.lives == 0 and game.hurt_by == "thorn bush"
+    assert game.command("r") is Outcome.GAME_OVER
+
+
+def test_R7_r_resumes_from_the_start_after_a_hazard():
+    """R7: after a hazard, R puts both figures back on their start tiles (as after a catch, R4)."""
+    game = Game()
+    walk(game, [(1, 6), (1, 7), (1, 8), (1, 9)])
+    assert game.command("d") is Outcome.PAUSED
+    assert game.command("r") is Outcome.RESUMED
+    assert game.status is Status.PLAYING and game.hurt_by is None
+    assert (game.player, game.reaper) == (game.maze.player_start, game.maze.reaper_start)
+    assert game.lives == 2 and game.turn == 4
+
+
+def test_R7_three_hazards_lose_the_game():
+    """R7: hazards and the reaper share the same three lives."""
+    game = Game()
+    for _ in range(2):
+        walk(game, [(1, 6), (1, 7), (1, 8), (1, 9)])
+        game.resume()
+    walk(game, [(1, 4), (1, 3)])  # and the reaper takes the last one
+    assert game.status is Status.LOST and game.hurt_by == "reaper"
+
+
+def test_R7_reaper_glides_over_hazards_unharmed():
+    """R7: hazards only hurt the player; the reaper crosses them on its shortest path."""
+    game = Game(Maze("########\n#RO P E#\n########", signs={}))
+    game.move("right")  # the only way to the player runs over the open grave
+    assert game.reaper == (1, 2) and game.maze.hazard(game.reaper) == "open grave"
+    assert game.status is Status.PLAYING and game.lives == 3
+
+
+def test_R7_walking_into_the_reaper_on_a_hazard_counts_as_the_reaper():
+    """R7: if the reaper stands on a hazard, stepping onto it is a catch, not a fall."""
+    game = Game(Maze("#######\n#ROP E#\n#######", signs={}))
+    game.reaper = (1, 2)
+    game.move("left")
+    assert game.status is Status.CAUGHT and game.hurt_by == "reaper"
+
+
+def test_R7_the_reaper_catch_is_named_too():
+    """R7: hurt_by tells the front ends who took the life; it is empty while playing."""
+    game = Game()
+    assert game.hurt_by is None
+    walk(game, [(1, 4), (1, 3)])
+    assert game.hurt_by == "reaper"

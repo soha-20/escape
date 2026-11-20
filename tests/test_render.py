@@ -35,9 +35,10 @@ def test_R1_status_line_warns_how_close_the_reaper_is():
 def test_R2_signs_drawn_as_exclamation_marks_on_walls():
     """R2: signs on walls are marked '!' when in view."""
     game = Game()
-    for _ in range(4):
-        game.move("right")
-    assert rows(game)[0][9] == "!"
+    path = game.maze.shortest_path(game.player, (4, 21), avoid_hazards=True)
+    for a, b in zip(path, path[1:]):
+        game.move({(0, 1): "right", (0, -1): "left", (1, 0): "down", (-1, 0): "up"}[(b[0] - a[0], b[1] - a[1])])
+    assert rows(game)[3][23] == "!"
 
 
 def test_R1_screen_shows_turn_and_controls_while_playing():

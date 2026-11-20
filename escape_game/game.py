@@ -12,16 +12,16 @@ KEYS = {"w": "up", "s": "down", "a": "left", "d": "right"}
 
 class Status(Enum):
     PLAYING = "playing"
-    CAUGHT = "caught"   # lost a life, waiting for R to resume (R4)
+    CAUGHT = "caught"   # lost a life (to the reaper or a hazard), waiting for R to resume (R4, R7)
     WON = "won"
-    LOST = "lost"       # caught with the last life
+    LOST = "lost"       # lost the last life
     QUIT = "quit"
 
 
 class Outcome(Enum):
     """What a single command did."""
     MOVED = "moved"          # a turn was taken
-    WALL = "wall"            # bumped a wall; no turn used
+    WALL = "wall"            # bumped an obstacle (gravestone, fence, ...); no turn used
     INVALID = "invalid"      # unknown command; no turn used
     QUIT = "quit"
     GAME_OVER = "game_over"  # game already finished; nothing happens
@@ -37,6 +37,8 @@ class Game:
         self.reaper: Pos = self.maze.reaper_start
         self.turn = 0
         self.status = Status.PLAYING
+        self.hurt_by: str | None = None   # R7: "reaper", "open grave" or "thorn bush" after a lost life
+        self.bumped: str | None = None    # R6: the obstacle the last move ran into
         self.seen: set[Pos] = set()
         self._look()
 
@@ -58,36 +60,40 @@ class Game:
         return self.move(KEYS[key])
 
     def move(self, direction: str) -> Outcome:
-        """Player moves one tile, then (unless they escaped) the reaper does."""
+        """Player moves one tile, then (unless they escaped or got hurt) the reaper does."""
         if self.status is Status.CAUGHT:
             return Outcome.PAUSED
         if self.status is not Status.PLAYING:
             return Outcome.GAME_OVER
         dr, dc = DIRECTIONS[direction]
         target = (self.player[0] + dr, self.player[1] + dc)
-        if self.maze.is_wall(target):
+        self.bumped = self.maze.obstacle(target)
+        if self.bumped is not None:
             return Outcome.WALL
 
         self.turn += 1
         self.player = target
         self._look()
         if self.player == self.reaper:          # walked into the reaper
-            self._caught()
+            self._lose_life("reaper")
         elif self.player == self.maze.exit:     # escaped before the reaper moves
             self.status = Status.WON
+        elif self.maze.hazard(self.player):     # R7: fell into an open grave / thorns
+            self._lose_life(self.maze.hazard(self.player))
         else:
             self._reaper_step()
             if self.reaper == self.player:
-                self._caught()
+                self._lose_life("reaper")
         return Outcome.MOVED
 
     def resume(self) -> Outcome:
-        """After a catch with lives left: both go back to their start tiles and the chase goes on."""
+        """After a lost life (catch or hazard): both go back to their start tiles and the chase goes on."""
         if self.status is not Status.CAUGHT:
             return Outcome.INVALID if self.status is Status.PLAYING else Outcome.GAME_OVER
         self.player = self.maze.player_start
         self.reaper = self.maze.reaper_start
         self.status = Status.PLAYING
+        self.hurt_by = None
         self._look()
         return Outcome.RESUMED
 
@@ -103,7 +109,8 @@ class Game:
         return self.maze.signs_next_to(self.player)
 
     # --- internals ------------------------------------------------------
-    def _caught(self) -> None:
+    def _lose_life(self, cause: str) -> None:
+        self.hurt_by = cause
         self.lives -= 1
         self.status = Status.CAUGHT if self.lives > 0 else Status.LOST
 
