@@ -10,13 +10,12 @@ import os
 import sys
 
 from .game import Game, Outcome, Status
-from .render import INTRO, screen
+from .render import INTRO, bump_line, screen
 from .sound import Sound
 
 CLEAR = "\033[2J\033[H"
 
 MESSAGES = {
-    Outcome.WALL: "A cold stone wall. You lose no time, but don't waste any either.",
     Outcome.INVALID: "Unknown command. Use w/a/s/d to move or q to quit.",
     Outcome.PAUSED: "You are in the Reaper's grip. Type r to resume.",
 }
@@ -29,7 +28,7 @@ def _enable_windows_ansi() -> None:
 
 def main(argv=None, stdin=None, stdout=None, sound: Sound | None = None) -> int:
     parser = argparse.ArgumentParser(prog="py -m escape_game",
-                                     description="Escape the Grim Reaper through a dark maze.")
+                                     description="Escape the Grim Reaper through a dark graveyard.")
     parser.add_argument("--mute", action="store_true", help="play without sound")
     parser.add_argument("--text", action="store_true", help="play inside the terminal instead of a window")
     parser.add_argument("--no-color", action="store_true", help="with --text: plain text, no ANSI colours")
@@ -71,7 +70,10 @@ def main(argv=None, stdin=None, stdout=None, sound: Sound | None = None) -> int:
         if line == "":  # end of input: treat as quitting
             line = "q"
         outcome = game.command(line)
-        show(MESSAGES.get(outcome, ""))
+        if outcome is Outcome.WALL:  # R6: say what is in the way
+            show(f"{bump_line(game.bumped)} You lose no time, but don't waste any either.")
+        else:
+            show(MESSAGES.get(outcome, ""))
         if outcome is Outcome.RESUMED:
             sound.heartbeat(game.reaper_distance())
         elif outcome is Outcome.MOVED:

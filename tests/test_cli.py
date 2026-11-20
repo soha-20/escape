@@ -69,16 +69,16 @@ def test_R1_end_of_input_quits_cleanly():
 
 
 def test_R1_wall_and_typo_messages_are_shown():
-    """R1: the player is told when a move was not taken."""
+    """R1: the player is told when a move was not taken (since R6 the fence, not a stone wall)."""
     _, out, _ = play("w\nzz\nq\n")
-    assert "cold stone wall" in out
+    assert "An iron fence blocks your way." in out
     assert "Unknown command" in out
 
 
 def test_R2_sign_text_appears_at_the_fork():
     """R2: arriving next to the first signpost shows 'Wanna get stuck?' in the warning colour."""
     _, out, _ = play(keys_to(FIRST_WARNING) + "q\n")
-    assert 'Scrawled on the wall in red: "Wanna get stuck?' in out
+    assert 'Painted on a signpost in red: "Wanna get stuck?' in out
 
 
 def test_R2_warning_signs_are_red_and_guides_green_when_colour_is_on():
@@ -165,3 +165,20 @@ def test_R1_falls_back_to_terminal_if_window_cannot_open(monkeypatch):
     assert main(["--mute"], stdin=io.StringIO("q\n"), stdout=out) == 0
     assert "Could not open the game window" in out.getvalue()
     assert "You gave up" in out.getvalue()
+
+
+# --- R6 / R7: the graveyard in the terminal version ---------------------------
+
+def test_R6_intro_mentions_the_graveyard():
+    """R6: the terminal story is set in a graveyard."""
+    _, out, _ = play("q\n")
+    assert "graveyard" in out
+
+
+def test_R7_open_grave_costs_a_life_in_the_terminal():
+    """R7: walking into the open grave east of the start costs a life and plays the life-lost tone."""
+    code, out, beeps = play("d\nd\nd\nd\nr\nq\n")
+    assert "You tumble into an open grave! You lose a life." in out
+    assert "Lives: ♥ ♥ ♡" in out
+    assert _contains(beeps, LIFE_LOST_TONES)
+    assert out.rstrip().endswith("You gave up. The Reaper is patient.")

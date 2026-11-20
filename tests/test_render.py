@@ -105,3 +105,69 @@ def test_R4_caught_screen_says_a_life_was_lost_and_how_to_resume():
     assert "You lose a life" in text
     assert "r + Enter" in text
     assert "GAME OVER" not in text and "w/a/s/d" not in text
+
+
+# --- R6 / R7: the graveyard in the terminal ---------------------------------
+
+def walk_to(game, goal):
+    path = game.maze.shortest_path(game.player, goal, avoid_hazards=True)
+    names = {(0, 1): "right", (0, -1): "left", (1, 0): "down", (-1, 0): "up"}
+    for a, b in zip(path, path[1:]):
+        game.move(names[(b[0] - a[0], b[1] - a[1])])
+
+
+def test_R6_graveyard_objects_are_drawn_with_their_own_marks():
+    """R6: fences '#', gravestones '+' and dead trees 'T' appear around the player."""
+    game = Game()
+    walk_to(game, (3, 6))
+    lines = rows(game)
+    assert lines[0][5] == "#"   # the graveyard fence
+    assert lines[4][6] == "+"   # a gravestone
+    assert lines[3][3] == "T"   # a dead tree
+
+
+def test_R6_intro_and_signs_speak_of_a_graveyard():
+    """R6: the story is set in a graveyard; signs are painted on signposts, not walls."""
+    from escape_game.render import INTRO, sign_lines
+    assert "graveyard" in INTRO and "maze" not in INTRO.lower()
+    game = Game()
+    walk_to(game, (4, 23))
+    assert sign_lines(game, color=False) == ['Painted on a signpost in red: "Wanna get stuck? →"']
+
+
+def test_R6_bump_line_names_the_obstacle():
+    """R6: walking into something says what it was."""
+    from escape_game.render import bump_line
+    assert bump_line("iron fence") == "An iron fence blocks your way."
+    assert bump_line("gravestone") == "A gravestone blocks your way."
+    assert bump_line("dead tree") == "A dead tree blocks your way."
+
+
+def test_R7_hazards_are_drawn_in_red():
+    """R7: open graves 'O' and thorn bushes '*' are marked in red so the player can avoid them."""
+    game = Game()
+    walk_to(game, (2, 9))
+    assert rows(game)[1][9] == "O" and rows(game)[1][13] == " "  # (1,13) not yet seen
+    walk_to(game, (2, 11))
+    assert rows(game)[1][13] == "*"
+    coloured = draw_map(game, color=True)
+    assert "\033[1;91mO" in coloured and "\033[1;91m*" in coloured
+
+
+def test_R7_screen_says_which_hazard_took_the_life():
+    """R7: after a hazard the screen names it and explains how to resume."""
+    game = Game()
+    walk_to(game, (1, 8))
+    game.move("right")
+    text = screen(game, color=False)
+    assert "You tumble into an open grave! You lose a life." in text
+    assert "r + Enter" in text and "Reaper's cold hand" not in text
+
+
+def test_R7_game_over_by_hazard_has_its_own_line():
+    """R7: losing the last life to a thorn bush says so on the GAME OVER line."""
+    from escape_game.maze import Maze
+    game = Game(Maze("#######\n#R P*E#\n#######", signs={}), lives=1)
+    game.move("right")
+    text = screen(game, color=False)
+    assert "A thorn bush held you fast. The Reaper only had to wait. GAME OVER." in text
