@@ -482,7 +482,7 @@ class GameWindow:
                        font=(TITLE_FONT, 44), tags=("overlay", "title"))
         cv.create_text(mid, 250, text="You wake among the graves at midnight.\n"
                                       "Something breathes behind you.\n\n"
-                                      "Read the signposts. Mind the open graves and thorns.\n"
+                                      "Read the signposts.\nMind the open graves and thorns.\n"
                                       "Find the EXIT gate. Don't look back.",
                        fill="#e0e0ea", font=(FONT, 15), justify="center", tags="overlay")
         cv.create_text(mid, self.map_height + 70, text="Press any key to begin", fill="#ffe066",

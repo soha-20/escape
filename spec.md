@@ -122,7 +122,7 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
 
 *Changed in round 3:* the hurdles are now the graveyard of R6 and R7 instead of maze corridors. Open ground has no corridor "forks", so the signs now mark the entrances of the fenced dead-end plots and the gates that lead on.
 
-* **Signs** are wooden **signposts** standing next to the decision points *(default)*. In the window each is drawn as a post with a parchment plaque, a glowing red or green border and `!`. A sign's message appears when the player stands on a walkable tile orthogonally next to it, shown in large text in the HUD as *Painted on a signpost: "…"*.
+* **Signs** are wooden **signposts** standing next to the decision points *(default)*. In the window each is drawn as a post with a parchment plaque, a glowing red or green border and `!`. A sign's message appears when the player stands on a walkable tile orthogonally next to it, shown in large text in the HUD as *Painted on a signpost: "…"*. A text too long for the window is drawn in a smaller font (down to 10 pt) until it fits *(default)*.
 * There are two kinds of sign, and every sign is honest *(default)*:
   * **Warning (red, ⚠):** stands at the entrance of a fenced dead-end plot and points into it, e.g. *"Wanna get stuck? →"* (the example in problem.md) at the first plot.
   * **Guide (green, ✔):** points toward the exit, e.g. *"↓ The gate lies this way. Hurry."*
