@@ -36,8 +36,8 @@ The player wakes at midnight in a fenced graveyard, carrying a torch, and the Gr
 
 ```
 ###############################
-#R   P   O   *   *    + #     #
-#       +   +   +   + T # + + #
+#R   P   O   *   *    ++#     #
+#       +   +   +   + T+# + + #
 #  T                  +!#     #
 #     +   +   +   +        +  #
 #           *  O    O + #    +#

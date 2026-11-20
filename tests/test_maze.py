@@ -201,3 +201,15 @@ def test_R7_pathfinding_can_cross_or_avoid_hazards():
     safe = maze.shortest_path((1, 1), (1, 4), avoid_hazards=True)
     assert (1, 2) not in safe and len(safe) == 6
     assert maze.neighbours((1, 1), avoid_hazards=True) == [(2, 1)]
+
+
+def test_R6_every_patch_of_grass_can_be_reached(maze):
+    """R6: no walled-in grass the player (or the reaper) could never get to."""
+    reach, stack = {maze.player_start}, [maze.player_start]
+    while stack:
+        for nxt in maze.neighbours(stack.pop()):
+            if nxt not in reach:
+                reach.add(nxt)
+                stack.append(nxt)
+    walkable = {(r, c) for r in range(maze.height) for c in range(maze.width) if not maze.is_wall((r, c))}
+    assert walkable == reach
