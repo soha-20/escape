@@ -7,3 +7,9 @@ Nowadays escape games are not prevailing so much and most of the users do not ha
 - R1: The game starts and the user (player) has to escape from the grim reaper who is the villian.
 - R2: The game will have hurdles like maze, the player has to follow the hints or signs telling which way to follow. For example: One red text on wall saying,"Wanna get stuck?".
 - R3: The users loses the game, once the grim reaper catches him.
+
+
+## Round 2 Requirements
+
+- R4: So, there will be 3 lives in this game. The user will press R to resume.
+- R5: Show three red hearts and lessen each one once the user loses until they lost all of their lives.
