@@ -8,7 +8,7 @@ import queue
 import threading
 import tkinter as tk
 
-from .game import Game, Outcome, Status
+from .game import MAX_LIVES, Game, Outcome, Status
 from .maze import WARNING
 from .render import reaper_line
 from .sound import Sound
@@ -18,6 +18,8 @@ VIEW_COLS, VIEW_ROWS = 15, 9   # the camera shows this many tiles, centred on th
 SCALE = TILE / 40    # figures are designed on a 40-pixel tile
 HUD_HEIGHT = 150
 TICK_MS = 60
+HEART_SIZES = (30, 25)   # HUD heart font size: beat, rest
+HEART_GAP = 40           # pixels between HUD hearts
 
 KEY_DIRECTIONS = {
     "Up": "up", "w": "up", "W": "up",
@@ -39,6 +41,7 @@ DOOR = "#7a4a26"
 HUD_BG = "#0d0b12"
 GREY = "#9a9aa8"
 ORANGE = "#ff9f43"
+HEART_LOST = "#5c5668"   # R5: grey empty heart for a lost life
 
 FONT = "Segoe UI"
 TITLE_FONT = "Impact"  # Tk falls back to a default font if it is missing
@@ -160,9 +163,12 @@ class SoundWorker:
     def escaped(self):
         self.jobs.put(("escaped", ()))
 
+    def life_lost(self):
+        self.jobs.put(("life_lost", ()))
+
 
 class GameWindow:
-    INTRO, PLAYING, OVER = "intro", "playing", "over"
+    INTRO, PLAYING, CAUGHT, OVER = "intro", "playing", "caught", "over"
 
     def __init__(self, root: tk.Tk, sound=None, threaded_sound: bool = True):
         self.root = root
@@ -195,6 +201,13 @@ class GameWindow:
             self.redraw()
             self.sound.heartbeat(self.game.reaper_distance())
             return
+        if self.state == self.CAUGHT:  # R4: wait for R, then back to the start tiles
+            if keysym in ("r", "R") and self.game.resume() is Outcome.RESUMED:
+                self.state = self.PLAYING
+                self.message = ""
+                self.redraw()
+                self.sound.heartbeat(self.game.reaper_distance())
+            return
         if self.state == self.OVER:
             if keysym in ("r", "R"):
                 self.game = Game()
@@ -208,12 +221,16 @@ class GameWindow:
             return
         outcome = self.game.move(direction)
         self.message = "A cold stone wall blocks your way." if outcome is Outcome.WALL else ""
-        if self.game.status is not Status.PLAYING:
+        if self.game.status is Status.CAUGHT:
+            self.state = self.CAUGHT
+        elif self.game.status is not Status.PLAYING:
             self.state = self.OVER
         self.redraw()
         if outcome is Outcome.MOVED:
             if self.game.status is Status.PLAYING:
                 self.sound.heartbeat(self.game.reaper_distance())
+            elif self.game.status is Status.CAUGHT:
+                self.sound.life_lost()
             elif self.game.status is Status.LOST:
                 self.sound.caught()
             elif self.game.status is Status.WON:
@@ -227,12 +244,14 @@ class GameWindow:
         self._draw_maze()
         game = self.game
         self._draw_sprite(game.player, draw_player)
-        if game.visible(game.reaper) or game.status is Status.LOST:
+        if game.visible(game.reaper) or game.status in (Status.LOST, Status.CAUGHT):
             self._draw_sprite(game.reaper, draw_reaper)
         self._draw_danger_border()
         self._draw_hud()
         if self.state == self.INTRO:
             self._draw_intro()
+        elif self.state == self.CAUGHT:
+            self._draw_caught()
         elif self.state == self.OVER:
             self._draw_ending()
 
@@ -313,10 +332,11 @@ class GameWindow:
         if self.state != self.PLAYING:
             return
         dist = game.reaper_distance()
-        cv.create_text(50, top + 50, text="♥", fill=RED, font=(FONT, 40, "bold"), tags=("hud", "heart"))
-        cv.create_text(95, top + 28, anchor="w", text=f"Turn {game.turn}", fill="#d0d0e0",
+        self._draw_hearts(30, top + 45, HEART_GAP, HEART_SIZES[1], "heart", "heart_lost", "hud", anchor="w")
+        text_x = 30 + HEART_GAP * MAX_LIVES
+        cv.create_text(text_x, top + 28, anchor="w", text=f"Turn {game.turn}", fill="#d0d0e0",
                        font=(FONT, 14, "bold"), tags=("hud", "hud_turn"))
-        cv.create_text(95, top + 60, anchor="w", text=reaper_line(dist, color=False),
+        cv.create_text(text_x, top + 60, anchor="w", text=reaper_line(dist, color=False),
                        fill=danger_colour(dist), font=(FONT, 14, "bold"), tags=("hud", "hud_status"))
         y = top + 100
         for sign in game.signs_here():
@@ -331,6 +351,18 @@ class GameWindow:
         cv.create_text(self.width - 12, top + HUD_HEIGHT - 14, anchor="e",
                        text="Arrow keys / WASD to move    Esc to quit", fill="#6c6c80",
                        font=(FONT, 10), tags="hud")
+
+    def _draw_hearts(self, x, y, gap, size, full_tag, lost_tag, layer, anchor="center"):
+        """R5: one red heart per life left, then grey empty hearts for the lives lost."""
+        for i in range(MAX_LIVES):
+            alive = i < self.game.lives
+            self.canvas.create_text(x + i * gap, y, anchor=anchor, text="♥" if alive else "♡",
+                                    fill=RED if alive else HEART_LOST, font=(FONT, size, "bold"),
+                                    tags=(layer, full_tag if alive else lost_tag))
+
+    def _draw_big_hearts(self, y):
+        gap = 90
+        self._draw_hearts(self.width / 2 - gap, y, gap, 44, "big_heart", "big_heart_lost", "overlay")
 
     def _shade_screen(self, moon: str = "#e8e2c8"):
         """A night backdrop for the title and ending screens: dark sky, moon, graveyard ground."""
@@ -362,6 +394,21 @@ class GameWindow:
         cv.create_text(mid, self.map_height + 70, text="Press any key to begin", fill="#ffe066",
                        font=(FONT, 18, "bold"), tags=("overlay", "blink"))
 
+    def _draw_caught(self):
+        """R4: a life is lost; show the hearts left and wait for R."""
+        cv, game = self.canvas, self.game
+        mid = self.width / 2
+        self._shade_screen("#a8432f")
+        draw_reaper(cv, mid, 375, 5, tag="overlay")
+        cv.create_text(mid, 75, text="CAUGHT!", fill=ORANGE, font=(TITLE_FONT, 54),
+                       tags=("overlay", "caught_title"))
+        left = f"{game.lives} {'life' if game.lives == 1 else 'lives'} left"
+        cv.create_text(mid, 145, text=f"The Reaper's cold hand grabs you! You lose a life. ({left})",
+                       fill="#e0e0ea", font=(FONT, 16), tags="overlay")
+        self._draw_big_hearts(205)
+        cv.create_text(mid, self.map_height + 70, text="Press R to resume    Esc to quit",
+                       fill="#ffe066", font=(FONT, 18, "bold"), tags=("overlay", "blink"))
+
     def _draw_ending(self):
         cv, game = self.canvas, self.game
         mid = self.width / 2
@@ -371,7 +418,8 @@ class GameWindow:
             title, colour = "YOU ESCAPED!", GREEN
             sub = f"You burst into the night air after {game.turn} turns."
         elif game.status is Status.LOST:
-            draw_reaper(cv, mid, 330, 6, tag="overlay")
+            draw_reaper(cv, mid, 375, 5, tag="overlay")
+            self._draw_big_hearts(205)
             title, colour = "GAME OVER", RED
             sub = "The Reaper's hand closes on your shoulder."
         else:
@@ -401,7 +449,7 @@ class GameWindow:
         cv.itemconfigure("reaper_eyes", fill=shade(RED, glow))
         period = heartbeat_period_ms(self.game.reaper_distance())
         phase = (t % period) / period
-        size = 46 if phase < 0.12 or 0.22 < phase < 0.3 else 38
+        size = HEART_SIZES[0] if phase < 0.12 or 0.22 < phase < 0.3 else HEART_SIZES[1]
         cv.itemconfigure("heart", font=(FONT, size, "bold"))
         cv.itemconfigure("danger", state="normal" if (t // 300) % 2 == 0 else "hidden")
         cv.itemconfigure("blink", state="normal" if (t // 600) % 2 == 0 else "hidden")

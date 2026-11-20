@@ -8,7 +8,7 @@ import tkinter as tk
 import pytest
 
 from escape_game.game import Game, Status
-from escape_game.gui import (GREEN, RED, TILE, VIEW_COLS, VIEW_ROWS, GameWindow, camera_origin,
+from escape_game.gui import (GREEN, HEART_LOST, RED, TILE, VIEW_COLS, VIEW_ROWS, GameWindow, camera_origin,
                              danger_colour, heartbeat_period_ms, light_level, shade)
 
 
@@ -24,6 +24,9 @@ class FakeSound:
 
     def escaped(self):
         self.played.append(("escaped",))
+
+    def life_lost(self):
+        self.played.append(("life_lost",))
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +61,14 @@ def centre_of(win, tag):
 def press(win, *keys):
     for k in keys:
         win.on_key(k)
+
+
+CATCH = ("Left", "Left")  # from the start tiles, two steps back: the reaper lands on the player
+
+
+def lose_all_lives(win):
+    """From the title screen, get caught three times (resuming in between)."""
+    press(win, "space", *CATCH, "r", *CATCH, "r", *CATCH)
 
 
 def route_keys(game):
@@ -145,12 +156,13 @@ def test_R1_escaping_shows_victory_screen_and_plays_escape_sound(window):
 
 
 def test_R1_r_restarts_after_the_game_ends(window):
-    """R1: after the game ends, R starts a fresh chase."""
-    press(window, "space", "Left", "Left")
+    """R1: after the game ends, R starts a fresh chase (with all 3 lives, R4)."""
+    lose_all_lives(window)
     assert window.game.status is Status.LOST
     press(window, "r")
     assert window.state == window.PLAYING
     assert window.game.status is Status.PLAYING and window.game.turn == 0
+    assert window.game.lives == 3
 
 
 def test_R1_escape_key_closes_the_window(tk_root):
@@ -249,8 +261,8 @@ def test_R2_exit_door_is_drawn_when_seen(window):
 # --- R3: losing --------------------------------------------------------------
 
 def test_R3_caught_shows_game_over_with_the_reaper(window):
-    """R3: being caught shows GAME OVER, a big reaper and plays the caught sound."""
-    press(window, "space", "Left", "Left")
+    """R3: being caught on the last life shows GAME OVER, a big reaper and plays the caught sound."""
+    lose_all_lives(window)
     assert window.game.status is Status.LOST
     assert texts(window, "ending_title") == ["GAME OVER"]
     assert window.canvas.find_withtag("overlay") and window.canvas.find_withtag("reaper_eyes")
@@ -258,8 +270,102 @@ def test_R3_caught_shows_game_over_with_the_reaper(window):
 
 
 def test_R3_moves_are_ignored_after_game_over(window):
-    """R3: once caught, arrow keys do nothing."""
-    press(window, "space", "Left", "Left")
+    """R3: once caught on the last life, arrow keys do nothing."""
+    lose_all_lives(window)
     turn = window.game.turn
     press(window, "Right", "Right")
     assert window.game.turn == turn and window.game.status is Status.LOST
+
+
+# --- R4: three lives; R resumes ------------------------------------------------
+
+def test_R4_catch_with_lives_left_shows_caught_screen(window):
+    """R4: a catch with lives left shows CAUGHT!, explains R, and plays the life-lost tone."""
+    press(window, "space", *CATCH)
+    assert window.game.status is Status.CAUGHT
+    assert window.state == window.CAUGHT
+    assert texts(window, "caught_title") == ["CAUGHT!"]
+    assert any("Press R to resume" in t for t in texts(window, "blink"))
+    assert not window.canvas.find_withtag("ending_title")
+    assert window.sound.played[-1] == ("life_lost",)
+
+
+def test_R4_moves_are_ignored_until_r_is_pressed(window):
+    """R4: while caught, arrow keys do nothing."""
+    press(window, "space", *CATCH)
+    turn = window.game.turn
+    press(window, "Right", "Down", "space")
+    assert window.game.turn == turn and window.state == window.CAUGHT
+
+
+def test_R4_r_resumes_from_the_start_tiles(window):
+    """R4: R resumes the chase with the player and reaper back on their start tiles."""
+    press(window, "space", *CATCH, "R")
+    game = window.game
+    assert window.state == window.PLAYING and game.status is Status.PLAYING
+    assert (game.player, game.reaper) == (game.maze.player_start, game.maze.reaper_start)
+    assert not window.canvas.find_withtag("caught_title")
+    assert window.sound.played[-1] == ("heartbeat", 4)
+    press(window, "Right")
+    assert game.turn == 3
+
+
+def test_R4_third_catch_is_game_over_and_r_gives_three_new_lives(window):
+    """R4: losing all 3 lives ends the game; R then starts over with 3 lives."""
+    lose_all_lives(window)
+    assert window.state == window.OVER and window.game.lives == 0
+    press(window, "r")
+    assert window.game.lives == 3 and len(window.canvas.find_withtag("heart")) == 3
+
+
+# --- R5: three red hearts that empty one by one ------------------------------
+
+def heart_counts(win, full="heart", lost="heart_lost"):
+    return len(win.canvas.find_withtag(full)), len(win.canvas.find_withtag(lost))
+
+
+def test_R5_hud_shows_three_red_hearts_at_the_start(window):
+    """R5: the status panel shows three red hearts."""
+    press(window, "space")
+    assert heart_counts(window) == (3, 0)
+    assert all(window.canvas.itemcget(i, "fill") == RED for i in window.canvas.find_withtag("heart"))
+    assert set(texts(window, "heart")) == {"♥"}
+
+
+def test_R5_each_lost_life_turns_one_heart_grey_and_empty(window):
+    """R5: the hearts go ♥♥♥ → ♥♥♡ → ♥♡♡, the empty ones grey and on the right."""
+    press(window, "space", *CATCH, "r")
+    assert heart_counts(window) == (2, 1)
+    lost = window.canvas.find_withtag("heart_lost")
+    assert texts(window, "heart_lost") == ["♡"]
+    assert window.canvas.itemcget(lost[0], "fill") == HEART_LOST
+    rightmost_full = max(centre_of(window, i)[0] for i in window.canvas.find_withtag("heart"))
+    assert centre_of(window, lost[0])[0] > rightmost_full
+    press(window, *CATCH, "r")
+    assert heart_counts(window) == (1, 2)
+
+
+def test_R5_caught_screen_shows_the_hearts_left(window):
+    """R5: the CAUGHT! screen shows the lives left as big hearts."""
+    press(window, "space", *CATCH)
+    assert heart_counts(window, "big_heart", "big_heart_lost") == (2, 1)
+    press(window, "r", *CATCH)
+    assert heart_counts(window, "big_heart", "big_heart_lost") == (1, 2)
+
+
+def test_R5_game_over_shows_all_hearts_empty(window):
+    """R5: when all lives are lost, GAME OVER shows three empty hearts."""
+    lose_all_lives(window)
+    assert heart_counts(window, "big_heart", "big_heart_lost") == (0, 3)
+
+
+def test_R5_hearts_still_beat_with_the_heartbeat(window):
+    """R5: the remaining red hearts pulse with the heartbeat; empty ones stay still."""
+    press(window, "space", *CATCH, "r")
+    sizes = set()
+    lost_fonts = set()
+    for _ in range(30):
+        window._tick()
+        sizes.add(window.canvas.itemcget(window.canvas.find_withtag("heart")[0], "font"))
+        lost_fonts.add(window.canvas.itemcget(window.canvas.find_withtag("heart_lost")[0], "font"))
+    assert len(sizes) > 1 and len(lost_fonts) == 1
