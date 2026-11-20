@@ -10,7 +10,7 @@ import tkinter as tk
 
 from .game import MAX_LIVES, Game, Outcome, Status
 from .maze import WARNING
-from .render import GAME_OVER, LIFE_LOST, bump_line, reaper_line
+from .render import GAME_OVER, LIFE_LOST, bump_line, jump_line, reaper_line
 from .sound import Sound
 
 TILE = 52            # pixels per maze tile
@@ -21,12 +21,14 @@ TICK_MS = 60
 HEART_SIZES = (30, 25)   # HUD heart font size: beat, rest
 HEART_GAP = 40           # pixels between HUD hearts
 
-KEY_DIRECTIONS = {
-    "Up": "up", "w": "up", "W": "up",
+KEY_DIRECTIONS = {  # R10: the Up arrow jumps; W still moves north
+    "w": "up", "W": "up",
     "Down": "down", "s": "down", "S": "down",
     "Left": "left", "a": "left", "A": "left",
     "Right": "right", "d": "right", "D": "right",
 }
+JUMP_KEYS = {"Up"}  # R10
+CONTROLS = "W A S D / ← ↓ →  move     ↑  jump     Esc  quit"
 
 # palette
 BLACK = "#000000"
@@ -46,6 +48,8 @@ PLANK = "#e0cf9f"
 RED = "#ff3b3b"
 GREEN = "#3ddc84"
 DOOR = "#7a4a26"
+COFFIN = "#6e4a2c"       # R10: low hurdles
+COFFIN_DARK = "#3a2616"
 HUD_BG = "#0d0b12"
 GREY = "#9a9aa8"
 ORANGE = "#ff9f43"
@@ -234,11 +238,18 @@ class GameWindow:
                 self.redraw()
                 self.sound.heartbeat(self.game.reaper_distance())
             return
-        direction = KEY_DIRECTIONS.get(keysym)
-        if direction is None:
+        if keysym in JUMP_KEYS:  # R10
+            outcome = self.game.jump()
+        elif keysym in KEY_DIRECTIONS:
+            outcome = self.game.move(KEY_DIRECTIONS[keysym])
+        else:
             return
-        outcome = self.game.move(direction)
-        self.message = bump_line(self.game.bumped) if outcome is Outcome.WALL else ""
+        if outcome is Outcome.WALL:
+            self.message = bump_line(self.game.bumped, "Press ↑")
+        elif outcome is Outcome.NO_JUMP:
+            self.message = jump_line(self.game.jump_blocked)
+        else:
+            self.message = ""
         if self.game.status is Status.CAUGHT:
             self.state = self.CAUGHT
         elif self.game.status is not Status.PLAYING:
@@ -305,6 +316,10 @@ class GameWindow:
                     self._draw_open_grave(x0, y0, light)
                 elif hazard == "thorn bush":
                     self._draw_thorns(x0, y0, light)
+                elif maze.low_hurdle(pos) == "fallen headstone":
+                    self._draw_fallen_headstone(x0, y0, light)
+                elif maze.low_hurdle(pos) == "coffin":
+                    self._draw_coffin(x0, y0, light)
                 elif pos == maze.exit:
                     self._draw_exit(x0, y0, light)
 
@@ -395,6 +410,33 @@ class GameWindow:
                 cv.create_line(px - 4, py - 4, px + 4, py + 4, fill=spike, width=1, tags=tags)
                 cv.create_line(px - 4, py + 4, px + 4, py - 4, fill=spike, width=1, tags=tags)
 
+    def _draw_fallen_headstone(self, x0, y0, light):
+        """R10: a cracked headstone lying flat in the grass, low enough to jump."""
+        cv = self.canvas
+        tags = ("low_hurdle", "fallen_headstone")
+        stone, edge = shade(STONE, light), shade(STONE_DARK, light)
+        cv.create_oval(x0 + 4, y0 + 30, x0 + TILE - 4, y0 + 46, fill=shade(DIRT_DARK, light), outline="", tags=tags)
+        cv.create_polygon(x0 + 6, y0 + 38, x0 + 10, y0 + 24, x0 + 40, y0 + 20, x0 + 47, y0 + 30, x0 + 44, y0 + 40,
+                          fill=edge, outline="", tags=tags)  # the side of the slab
+        cv.create_polygon(x0 + 6, y0 + 34, x0 + 10, y0 + 20, x0 + 40, y0 + 16, x0 + 47, y0 + 26, x0 + 44, y0 + 36,
+                          fill=stone, outline=edge, smooth=False, tags=tags)
+        cv.create_line(x0 + 22, y0 + 19, x0 + 26, y0 + 27, x0 + 22, y0 + 34, fill=edge, width=2, tags=tags)  # crack
+        cv.create_text(x0 + 33, y0 + 27, text="RIP", fill=edge, font=(FONT, 7, "bold"), angle=8, tags=tags)
+
+    def _draw_coffin(self, x0, y0, light):
+        """R10: a wooden coffin lying on the grass, low enough to jump."""
+        cv = self.canvas
+        tags = ("low_hurdle", "coffin")
+        wood, dark = shade(COFFIN, light), shade(COFFIN_DARK, light)
+        cx = x0 + TILE / 2
+        outline = (cx - 9, y0 + 3, cx + 9, y0 + 3, cx + 15, y0 + 15, cx + 10, y0 + TILE - 3, cx - 10, y0 + TILE - 3,
+                   cx - 15, y0 + 15)
+        cv.create_polygon(*[v + (3 if i % 2 else 2) for i, v in enumerate(outline)], fill=shade(BLACK, 1),
+                          outline="", tags=tags)  # shadow
+        cv.create_polygon(*outline, fill=wood, outline=dark, width=2, tags=tags)
+        cv.create_line(cx, y0 + 12, cx, y0 + 34, fill=dark, width=3, tags=tags)       # the cross on the lid
+        cv.create_line(cx - 6, y0 + 19, cx + 6, y0 + 19, fill=dark, width=3, tags=tags)
+
     def _draw_exit(self, x0, y0, light):
         """The way out: an iron cemetery gate in a green glow."""
         cv = self.canvas
@@ -450,7 +492,7 @@ class GameWindow:
             cv.create_text(self.width / 2, top + 100, text=self.message, fill=GREY,
                            font=(FONT, 12, "italic"), tags=("hud", "hud_message"))
         cv.create_text(self.width - 12, top + HUD_HEIGHT - 14, anchor="e",
-                       text="Arrow keys / WASD to move    Esc to quit", fill="#6c6c80",
+                       text=CONTROLS, fill="#6c6c80",
                        font=(FONT, 10), tags="hud")
 
     def _draw_hearts(self, x, y, gap, size, full_tag, lost_tag, layer, anchor="center"):
@@ -491,6 +533,7 @@ class GameWindow:
         cv.create_text(mid, 250, text="You wake among the graves at midnight.\n"
                                       "Something breathes behind you.\n\n"
                                       "Read the signposts.\nMind the open graves and thorns.\n"
+                                      "Press ↑ to leap coffins and open graves.\n"
                                       "Find the EXIT gate. Don't look back.",
                        fill="#e0e0ea", font=(FONT, 15), justify="center", tags="overlay")
         cv.create_text(mid, self.map_height + 70, text="Press any key to begin", fill="#ffe066",

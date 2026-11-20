@@ -72,8 +72,8 @@ def lose_all_lives(win):
 
 
 def route_keys(game, goal=None):
-    """Arrow keys along the shortest hazard-free way (R7) to goal (default: the exit)."""
-    names = {(0, 1): "Right", (0, -1): "Left", (1, 0): "Down", (-1, 0): "Up"}
+    """Keys along the shortest hazard-free way (R7) to goal (default: the exit). North is W: Up jumps (R10)."""
+    names = {(0, 1): "Right", (0, -1): "Left", (1, 0): "Down", (-1, 0): "w"}
     path = game.maze.shortest_path(game.player, goal or game.maze.exit, avoid_hazards=True)
     return [names[(b[0] - a[0], b[1] - a[1])] for a, b in zip(path, path[1:])]
 
@@ -118,7 +118,7 @@ def test_R1_reaper_figure_is_drawn_whenever_it_is_in_view(window):
 
 
 @pytest.mark.parametrize("key,expected", [("Right", (1, 6)), ("d", (1, 6)), ("D", (1, 6)),
-                                          ("Left", (1, 4)), ("a", (1, 4))])
+                                          ("Left", (1, 4)), ("a", (1, 4)), ("Down", (2, 5)), ("s", (2, 5))])
 def test_R1_arrow_keys_and_wasd_move_with_one_keypress(window, key, expected):
     """R1: one keypress = one move, no Enter needed."""
     press(window, "space", key)
@@ -127,8 +127,10 @@ def test_R1_arrow_keys_and_wasd_move_with_one_keypress(window, key, expected):
 
 
 def test_R1_wall_bump_shows_a_message_and_costs_no_turn(window):
-    """R1: walking into something (since R6: the graveyard fence) is explained and does not let the reaper move."""
-    press(window, "space", "Up")
+    """R1: walking into something (since R6: the graveyard fence) is explained and does not let the reaper move.
+
+    Since R10 the Up arrow jumps, so north is W."""
+    press(window, "space", "w")
     assert window.game.turn == 0
     assert texts(window, "hud_message") == ["An iron fence blocks your way."]
 
@@ -392,9 +394,9 @@ def test_R6_title_screen_tells_of_the_graveyard(window):
 
 def test_R6_bumping_a_gravestone_names_it(window):
     """R6: walking into a gravestone says so and costs no turn."""
-    press(window, "space", *route_keys(window.game, (3, 8)), "Up")  # (2,8) is a gravestone
+    press(window, "space", *route_keys(window.game, (3, 8)), "w")  # (2,8) is a gravestone
     turn = window.game.turn
-    press(window, "Up")
+    press(window, "w")
     assert window.game.turn == turn
     assert texts(window, "hud_message") == ["A gravestone blocks your way."]
 
@@ -477,3 +479,50 @@ def test_R9_the_whole_view_is_drawn_not_just_near_the_torch(window):
     window.game.player = (13, 20)
     window.redraw()
     assert len(window.canvas.find_withtag("floor")) >= VIEW_ROWS * VIEW_COLS
+
+
+# --- R10: jumping in the window ---------------------------------------------------
+
+def test_R10_up_arrow_jumps_the_open_grave_east_of_the_start(window):
+    """R10: facing the open grave, Up leaps over it: two tiles, one turn, no life lost."""
+    press(window, "space", "Right", "Right", "Right", "Up")
+    game = window.game
+    assert game.player == (1, 10) and game.turn == 4 and game.lives == 3
+    assert window.state == window.PLAYING and window.sound.played[-1][0] == "heartbeat"
+
+
+def test_R10_w_still_moves_north_but_up_no_longer_does(window):
+    """R10: north is W; Up in front of plain grass does nothing and says so."""
+    press(window, "space", "Down", "w")
+    assert window.game.player == (1, 5) and window.game.turn == 2
+    press(window, "Up")
+    assert window.game.player == (1, 5) and window.game.turn == 2
+    assert texts(window, "hud_message") == ["There is nothing here to jump over."]
+
+
+def test_R10_bumping_a_low_hurdle_tells_how_to_jump_it(window):
+    """R10: walking into a fallen headstone explains the Up arrow; then Up clears it."""
+    press(window, "space", *route_keys(window.game, (3, 19)), "Right")
+    assert texts(window, "hud_message") == ["A fallen headstone blocks your way. Press ↑ to jump over it."]
+    turn = window.game.turn
+    press(window, "Up")
+    assert window.game.player == (3, 21) and window.game.turn == turn + 1
+    assert window.game.reaper_distance() == 5  # the jump gained a step on the reaper
+
+
+def test_R10_low_hurdles_are_drawn_as_a_fallen_headstone_and_coffins(window):
+    """R10: low hurdles on screen are drawn with their own tags, apart from blocking obstacles."""
+    press(window, "space")
+    window.game.player = (10, 25)
+    window.redraw()
+    assert window.canvas.find_withtag("coffin") and window.canvas.find_withtag("fallen_headstone")
+    low = set(window.canvas.find_withtag("low_hurdle"))
+    assert set(window.canvas.find_withtag("coffin")) <= low
+    assert not low & set(window.canvas.find_withtag("obstacle"))
+
+
+def test_R10_controls_and_title_screen_mention_the_jump(window):
+    """R10: the title story and the controls line explain the Up arrow."""
+    assert any("↑" in t and "leap" in t for t in texts(window, "overlay"))
+    press(window, "space")
+    assert any("↑  jump" in t for t in texts(window, "hud"))
