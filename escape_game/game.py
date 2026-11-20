@@ -8,6 +8,7 @@ VIEW_RADIUS = 3
 MAX_LIVES = 3  # R4
 
 KEYS = {"w": "up", "s": "down", "a": "left", "d": "right"}
+JUMP_KEY = "j"  # R10: the --text version's jump (the window uses the Up arrow)
 
 
 class Status(Enum):
@@ -21,7 +22,8 @@ class Status(Enum):
 class Outcome(Enum):
     """What a single command did."""
     MOVED = "moved"          # a turn was taken
-    WALL = "wall"            # bumped an obstacle (gravestone, fence, ...); no turn used
+    WALL = "wall"            # bumped an obstacle (gravestone, fence, low hurdle, ...); no turn used
+    NO_JUMP = "no_jump"      # R10: nothing to jump over, or no safe landing; no turn used
     INVALID = "invalid"      # unknown command; no turn used
     QUIT = "quit"
     GAME_OVER = "game_over"  # game already finished; nothing happens
@@ -39,12 +41,15 @@ class Game:
         self.status = Status.PLAYING
         self.hurt_by: str | None = None   # R7: "reaper", "open grave" or "thorn bush" after a lost life
         self.bumped: str | None = None    # R6: the obstacle the last move ran into
+        self.facing = "right"             # R10: the way the player last tried to move; jumps go this way
+        self.jumped = False               # R10: the last turn was a jump
+        self.jump_blocked: str | None = None  # R10: why the last jump failed: "nothing" or what is in the way
         self.seen: set[Pos] = set()
         self._look()
 
     # --- commands -------------------------------------------------------
     def command(self, text: str) -> Outcome:
-        """Handle one line of player input (w/a/s/d to move, r to resume, q to quit)."""
+        """Handle one line of player input (w/a/s/d to move, j to jump, r to resume, q to quit)."""
         key = text.replace("﻿", "").strip().lower()  # PowerShell pipes add a BOM
         if self.status not in (Status.PLAYING, Status.CAUGHT):
             return Outcome.GAME_OVER
@@ -55,6 +60,8 @@ class Game:
             return self.resume()
         if self.status is Status.CAUGHT:
             return Outcome.PAUSED
+        if key == JUMP_KEY:
+            return self.jump()
         if key not in KEYS:
             return Outcome.INVALID
         return self.move(KEYS[key])
@@ -65,16 +72,42 @@ class Game:
             return Outcome.PAUSED
         if self.status is not Status.PLAYING:
             return Outcome.GAME_OVER
+        self.facing = direction
         dr, dc = DIRECTIONS[direction]
         target = (self.player[0] + dr, self.player[1] + dc)
-        self.bumped = self.maze.obstacle(target)
+        self.bumped = self.maze.obstacle(target) or self.maze.low_hurdle(target)
         if self.bumped is not None:
             return Outcome.WALL
+        return self._take_turn(target, jumped=False)
 
+    def jump(self) -> Outcome:
+        """R10: leap over the low hurdle or hazard in front of the player, landing two tiles on (one turn)."""
+        if self.status is Status.CAUGHT:
+            return Outcome.PAUSED
+        if self.status is not Status.PLAYING:
+            return Outcome.GAME_OVER
+        maze = self.maze
+        dr, dc = DIRECTIONS[self.facing]
+        over = (self.player[0] + dr, self.player[1] + dc)
+        land = (self.player[0] + 2 * dr, self.player[1] + 2 * dc)
+        if maze.low_hurdle(over) is None and maze.hazard(over) is None:
+            self.jump_blocked = "nothing"
+            return Outcome.NO_JUMP
+        self.jump_blocked = maze.obstacle(land) or maze.low_hurdle(land) or maze.hazard(land)
+        if self.jump_blocked is not None:
+            return Outcome.NO_JUMP
+        if over == self.reaper:                 # nobody leaps over Death
+            return self._take_turn(over, jumped=True)
+        return self._take_turn(land, jumped=True)
+
+    def _take_turn(self, target: Pos, jumped: bool) -> Outcome:
+        """The player arrives on target; then the R1 turn order follows."""
         self.turn += 1
         self.player = target
+        self.jumped = jumped
+        self.jump_blocked = None
         self._look()
-        if self.player == self.reaper:          # walked into the reaper
+        if self.player == self.reaper:          # walked (or leapt) into the reaper
             self._lose_life("reaper")
         elif self.player == self.maze.exit:     # escaped before the reaper moves
             self.status = Status.WON

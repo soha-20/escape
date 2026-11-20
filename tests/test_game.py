@@ -429,3 +429,117 @@ def test_R7_the_reaper_catch_is_named_too():
     assert game.hurt_by is None
     walk(game, [(1, 4), (1, 3)])
     assert game.hurt_by == "reaper"
+
+
+# --- R10: jumping over low hurdles (and hazards) with the Up arrow ------------
+
+JUMP_YARD = "########\n#R P=  #\n#      #\n######E#\n########"  # a fallen headstone right of P
+
+
+def test_R10_walking_into_a_low_hurdle_is_blocked_and_costs_no_turn():
+    """R10: a low hurdle blocks walking like any obstacle; the bump names it."""
+    game = Game(Maze(JUMP_YARD, signs={}))
+    assert game.move("right") is Outcome.WALL
+    assert game.bumped == "fallen headstone" and game.turn == 0 and game.player == (1, 3)
+
+
+def test_R10_jump_leaps_over_a_low_hurdle_in_one_turn():
+    """R10: a jump lands two tiles on, takes one turn, and the reaper takes one step."""
+    game = Game(Maze(JUMP_YARD, signs={}))
+    assert game.jump() is Outcome.MOVED
+    assert game.player == (1, 5) and game.turn == 1 and game.jumped
+    assert game.reaper == (1, 2)
+    game.move("right")
+    assert not game.jumped
+
+
+def test_R10_the_player_faces_the_way_they_last_tried_to_move():
+    """R10: the player starts facing right; every move or bump turns them."""
+    game = Game()
+    assert game.facing == "right"
+    game.move("up")  # the graveyard fence: a bump, but it still turns the player
+    assert game.facing == "up" and game.turn == 0
+    game.move("down")
+    assert game.facing == "down"
+
+
+def test_R10_up_jumps_in_the_facing_direction():
+    """R10: the jump goes the way the player faces, not always north."""
+    game = Game(Maze("########\n#R P   #\n#   =  #\n#   C  #\n#   E  #\n########", signs={}))
+    game.move("right")      # (1,4), facing right
+    game.move("down")       # bumps the fallen headstone at (2,4): now facing down
+    assert game.facing == "down"
+    assert game.jump() is Outcome.NO_JUMP  # the landing tile (3,4) is a coffin
+    assert game.jump_blocked == "coffin" and game.player == (1, 4)
+
+
+def test_R10_nothing_to_jump_over_costs_no_turn():
+    """R10: Up in front of plain grass does nothing (a jump is not a free double step)."""
+    game = Game()
+    assert game.jump() is Outcome.NO_JUMP
+    assert game.jump_blocked == "nothing" and game.turn == 0 and game.player == game.maze.player_start
+
+
+@pytest.mark.parametrize("ahead,blocker", [("=+", "gravestone"), ("=#", "iron fence"), ("=O", "open grave"),
+                                          ("O*", "thorn bush"), ("==", "fallen headstone")])
+def test_R10_cannot_land_on_an_obstacle_hazard_or_hurdle(ahead, blocker):
+    """R10: the landing tile must be safe ground; otherwise no jump and no turn."""
+    game = Game(Maze(f"##########\n#R P{ahead}   #\n#      E #\n##########", signs={}))
+    assert game.jump() is Outcome.NO_JUMP
+    assert game.jump_blocked == blocker and game.turn == 0
+
+
+def test_R10_jumping_over_an_open_grave_does_no_harm():
+    """R10 / R7: a hazard can be jumped over safely."""
+    game = Game()
+    walk(game, [(1, 6), (1, 7), (1, 8)])  # the open grave at (1,9) is ahead
+    assert game.jump() is Outcome.MOVED
+    assert game.player == (1, 10) and game.lives == 3 and game.status is Status.PLAYING
+
+
+def test_R10_landing_on_the_exit_wins():
+    """R10: a jump onto the exit escapes before the reaper moves."""
+    game = Game(Maze("#######\n#R P=E#\n#######", signs={}))
+    game.jump()
+    assert game.status is Status.WON and game.reaper == (1, 1)
+
+
+def test_R10_leaping_into_or_through_the_reaper_is_a_catch():
+    """R10: the reaper cannot be jumped; landing on or passing through its tile is a catch."""
+    game = Game(Maze("#######\n#  P=R#\n#E    #\n#######", signs={}))
+    game.reaper = (1, 5)
+    game.jump()
+    assert game.status is Status.CAUGHT and game.hurt_by == "reaper"
+    game = Game(Maze("########\n#  P= R#\n#E     #\n########", signs={}))
+    game.reaper = (1, 4)  # gliding over the fallen headstone
+    game.jump()
+    assert game.status is Status.CAUGHT and game.hurt_by == "reaper"
+
+
+def test_R10_j_command_jumps_in_the_terminal():
+    """R10: in --text, j + Enter is the jump."""
+    game = Game(Maze(JUMP_YARD, signs={}))
+    assert game.command("j") is Outcome.MOVED and game.player == (1, 5)
+
+
+def test_R10_no_jumping_while_caught_or_after_the_game():
+    """R10: a jump is a move: ignored while waiting for R and after the game ends."""
+    game = Game()
+    get_caught(game)
+    assert game.jump() is Outcome.PAUSED
+    game = Game(lives=1)
+    get_caught(game)
+    assert game.jump() is Outcome.GAME_OVER
+
+
+def test_R10_a_jump_on_the_way_gains_a_step_on_the_reaper():
+    """R10: jumping the fallen headstone beside the route puts the reaper 5 steps behind, and the player still wins."""
+    game = Game()
+    route = solution(game)
+    walk(game, route[:route.index((3, 19)) + 1])
+    assert game.reaper_distance() == 4
+    assert game.move("right") is Outcome.WALL and game.bumped == "fallen headstone"
+    assert game.jump() is Outcome.MOVED and game.player == (3, 21)
+    assert game.reaper_distance() == 5
+    walk(game, solution(game))
+    assert game.status is Status.WON

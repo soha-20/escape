@@ -1,9 +1,11 @@
-"""The fixed graveyard (R6), its hurdles and hazards (R7), its signs (R2), and pathfinding.
+"""The fixed graveyard (R6), its hurdles and hazards (R7), low hurdles (R10), its signs (R2), and pathfinding.
 
 The class keeps its round-1 name, Maze. Legend for LAYOUT:
     (space) grass        P  player start  R  reaper start  E  exit gate
     #  iron fence        +  gravestone    T  dead tree     !  signpost (text in SIGNS)
     O  open grave        *  thorn bush    (hazards: walkable, but they cost the player a life)
+    =  fallen headstone  C  coffin        (low hurdles: block walking, but the player can jump them;
+                                           the reaper glides over them)
 """
 
 from collections import deque
@@ -15,16 +17,16 @@ LAYOUT = """\
 ###############################
 #R   P   O   *   *    ++#     #
 #       +   +   +   + T+# + + #
-#  T                  +!#     #
+#  T                = +!#     #
 #     +   +   +   +        +  #
 #           *  O    O + #    +#
 #  +    +*  +   +   + T #######
 #            T        +      !#
 ############################ ##
-#            O #!   O         #
+#            O #!   O      C  #
 #  +   +   +      +   +   +   #
-#              #    *        *#
-################ T  +   +     #
+#              #    *      = *#
+################ T  +   +  C  #
 # +  #! * +    #              #
 #                 +   +   +   #
 #  + #E  +  O  #!      *  O   #
@@ -32,6 +34,7 @@ LAYOUT = """\
 
 OBSTACLES: dict[str, str] = {"#": "iron fence", "+": "gravestone", "T": "dead tree", "!": "signpost"}
 HAZARDS: dict[str, str] = {"O": "open grave", "*": "thorn bush"}
+LOW_HURDLES: dict[str, str] = {"=": "fallen headstone", "C": "coffin"}  # R10
 
 # Directions in a fixed order; BFS uses this order, which makes the reaper deterministic.
 DIRECTIONS: dict[str, Pos] = {
@@ -72,6 +75,7 @@ class Maze:
         self.signs = dict(SIGNS if signs is None else signs)
         self._obstacles: dict[Pos, str] = {}
         self._hazards: dict[Pos, str] = {}
+        self._low: dict[Pos, str] = {}
         marks: dict[str, Pos] = {}
         sign_marks: set[Pos] = set()
         for r, row in enumerate(rows):
@@ -82,6 +86,8 @@ class Maze:
                         sign_marks.add((r, c))
                 elif ch in HAZARDS:
                     self._hazards[(r, c)] = HAZARDS[ch]
+                elif ch in LOW_HURDLES:
+                    self._low[(r, c)] = LOW_HURDLES[ch]
                 elif ch in "PRE":
                     if ch in marks:
                         raise ValueError(f"more than one {ch!r} in maze layout")
@@ -114,15 +120,23 @@ class Maze:
         """R7: "open grave" or "thorn bush" if stepping on pos hurts the player, else None."""
         return self._hazards.get(pos)
 
-    def neighbours(self, pos: Pos, avoid_hazards: bool = False) -> list[Pos]:
-        """Walkable tiles orthogonally adjacent to pos, in DIRECTIONS order.
+    def low_hurdle(self, pos: Pos) -> str | None:
+        """R10: "fallen headstone" or "coffin" if pos holds a low hurdle the player can jump, else None."""
+        return self._low.get(pos)
 
-        Hazards are walkable (the reaper glides over them); avoid_hazards leaves them out."""
+    def neighbours(self, pos: Pos, avoid_hazards: bool = False) -> list[Pos]:
+        """Tiles orthogonally adjacent to pos that can be entered, in DIRECTIONS order.
+
+        By default this is the reaper's view: it glides over hazards and low hurdles.
+        avoid_hazards=True is the player on foot: it leaves out hazards and low hurdles (R7, R10)."""
         result = []
         for dr, dc in DIRECTIONS.values():
             nxt = (pos[0] + dr, pos[1] + dc)
-            if not self.is_wall(nxt) and not (avoid_hazards and nxt in self._hazards):
-                result.append(nxt)
+            if self.is_wall(nxt):
+                continue
+            if avoid_hazards and (nxt in self._hazards or nxt in self._low):
+                continue
+            result.append(nxt)
         return result
 
     def shortest_path(self, start: Pos, goal: Pos, avoid_hazards: bool = False) -> list[Pos] | None:

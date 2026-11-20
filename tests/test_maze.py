@@ -6,7 +6,7 @@ open ground has no corridor forks, so the signs now mark fenced dead-end plots a
 
 import pytest
 
-from escape_game.maze import DIRECTIONS, GUIDE, HAZARDS, OBSTACLES, WARNING, Maze, Sign
+from escape_game.maze import DIRECTIONS, GUIDE, HAZARDS, LOW_HURDLES, OBSTACLES, WARNING, Maze, Sign
 
 
 @pytest.fixture
@@ -213,3 +213,63 @@ def test_R6_every_patch_of_grass_can_be_reached(maze):
                 stack.append(nxt)
     walkable = {(r, c) for r in range(maze.height) for c in range(maze.width) if not maze.is_wall((r, c))}
     assert walkable == reach
+
+
+# --- R10: low hurdles the player can jump -------------------------------------
+
+def walking_distances(maze):
+    """Moves the player needs on foot (no hazards, no low hurdles) from each tile to the exit."""
+    dist, todo = {maze.exit: 0}, [maze.exit]
+    while todo:
+        cur = todo.pop(0)
+        for nxt in maze.neighbours(cur, avoid_hazards=True):
+            if nxt not in dist:
+                dist[nxt] = dist[cur] + 1
+                todo.append(nxt)
+    return dist
+
+
+def test_R10_low_hurdles_are_fallen_headstones_and_coffins(maze):
+    """R10: the graveyard has low hurdles of two kinds: fallen headstones (=) and coffins (C)."""
+    assert LOW_HURDLES == {"=": "fallen headstone", "C": "coffin"}
+    assert tiles_of(maze, "=") and tiles_of(maze, "C")
+    assert len(tiles_of(maze, "=") + tiles_of(maze, "C")) >= 4
+    for p in tiles_of(maze, "C"):
+        assert maze.low_hurdle(p) == "coffin" and maze.obstacle(p) is None and maze.hazard(p) is None
+    assert maze.low_hurdle(maze.player_start) is None
+
+
+def test_R10_low_hurdles_block_the_player_on_foot_but_not_the_reaper():
+    """R10: a player route walks around a low hurdle; the reaper glides over it."""
+    small = Maze("######\n#R= E#\n#    #\n#P   #\n######", signs={})
+    assert small.shortest_path((1, 1), (1, 4)) == [(1, 1), (1, 2), (1, 3), (1, 4)]
+    assert (1, 2) not in small.shortest_path((1, 1), (1, 4), avoid_hazards=True)
+    assert not small.is_wall((1, 2))
+
+
+def test_R10_every_low_hurdle_offers_a_jump_that_saves_a_turn(maze):
+    """R10: each low hurdle lies beside the safe route, where jumping it lands 2 steps closer to the exit."""
+    dist = walking_distances(maze)
+    route = safe_route(maze)
+    for hurdle in tiles_of(maze, "=") + tiles_of(maze, "C"):
+        shortcuts = []
+        for tile in route:
+            dr, dc = hurdle[0] - tile[0], hurdle[1] - tile[1]
+            if abs(dr) + abs(dc) == 1:
+                land = (hurdle[0] + dr, hurdle[1] + dc)
+                if land in dist and dist[land] <= dist[tile] - 2:
+                    shortcuts.append(tile)
+        assert shortcuts, f"jumping the low hurdle at {hurdle} saves nothing"
+
+
+def test_R10_low_hurdles_wall_in_no_grass(maze):
+    """R10: the player can still walk to every patch of grass without jumping."""
+    reach, stack = {maze.player_start}, [maze.player_start]
+    while stack:
+        for nxt in maze.neighbours(stack.pop(), avoid_hazards=True):
+            if nxt not in reach:
+                reach.add(nxt)
+                stack.append(nxt)
+    grass = {(r, c) for r in range(maze.height) for c in range(maze.width)
+             if not maze.is_wall((r, c)) and not maze.hazard((r, c)) and not maze.low_hurdle((r, c))}
+    assert grass == reach
