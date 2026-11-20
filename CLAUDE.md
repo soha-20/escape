@@ -35,8 +35,10 @@ py -m pytest
 - Never undo or amend a commit, and never force-push, unless the user explicitly asks. Ask before pushing.
 - Handoff files (`HANDOFF-round-<n>.md`) are written only when the user asks. Leave them, and edits to this file, uncommitted until the user has reviewed them.
 - If a requirement is unclear, ask the user before writing code.
+- Before changing the layout in `maze.py`, simulate the chase on the new layout. The safe route must still win with the reaper 4 steps behind, and every grass tile must be reachable. The R2/R6/R7 layout tests check this.
 
 ## Tooling notes
 - **Screenshots:** with Windows display scaling, `PIL.ImageGrab` coordinates are off. Grab the full screen, multiply window coordinates by `image.width / root.winfo_screenwidth()`, then crop. Pillow is for screenshots only, never a game dependency. Keep screenshot scripts in the session scratchpad.
-- **Escapes in shell heredocs:** inline Python in heredocs can turn `\n` and `\u` escapes into real characters. Use the Edit tool for source lines that contain escapes, such as the BOM strip in `game.py`.
+- **Screenshots, first frame:** run `root.update()` a few times with short sleeps before the first grab. Otherwise the window isn't settled and desktop pixels end up in the crop.
+- **Escapes in shell heredocs:** inline Python in heredocs can turn `\n` and `\u` escapes into real characters. This includes `\\n` inside Python string literals. Use the Edit tool for source lines that contain escapes, such as the BOM strip in `game.py`. For bigger scripted edits, write the Python script into the scratchpad with the Write tool and run it from there.
 - Symbols such as ♥ ♡ → print as `?` when `--text` output is piped (cp1252). Set `PYTHONIOENCODING=utf-8` to see them.
