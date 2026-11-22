@@ -1,0 +1,322 @@
+"""Tests for the real-time chase of the game window (R13, R14) and the remembered jump (R10).
+
+The rules for time live in game.py on a clock the tests advance by hand (Game.update(ms)), so a whole
+chase runs in milliseconds and every result is exact.
+"""
+
+from escape_game.game import (JUMP_BUFFER_MS, JUMP_MS, PLAYER_STEP_MS, REAPER_STEP_MS, Game, Outcome,
+                              Status)
+from escape_game.maze import DIRECTIONS, Maze
+
+STEP_TO_DIR = {v: k for k, v in DIRECTIONS.items()}
+HESITANT_MS = 500  # R13: stopping this long at each of the 7 bends still escapes (measured: gap 2)
+CAUGHT_MS = 700    # R13: stopping this long at each bend is caught (from about 600 ms)
+LANE = "############\n#R  P      #\n#+++++++++ #\n#E         #\n############"  # a short run east
+
+
+def realtime(maze=None, lives=3):
+    return Game(Maze(maze, signs={}) if maze else None, lives=lives, realtime=True)
+
+
+def run_route(game, hesitate_ms=0):
+    """Play the safe route like a person holding keys. Up is tapped while running onto the tile before
+    each hurdle (a remembered jump, R10). At every bend the player stops, hesitates `hesitate_ms`, then
+    presses the new direction. Returns the smallest gap to the Reaper seen on the way."""
+    route = game.maze.player_route(game.player, game.maze.exit)
+    held, smallest = None, game.reaper_distance()
+
+    def wait(until):
+        nonlocal smallest
+        while game.clock < until and game.status is Status.PLAYING:
+            game.update(min(10, until - game.clock))
+            smallest = min(smallest, game.reaper_distance())
+
+    for a, b in zip(route, route[1:]):
+        while game.player != a and game.status is Status.PLAYING:  # running toward a
+            wait(game.clock + 1)
+        if game.status is not Status.PLAYING:
+            break
+        dr, dc = b[0] - a[0], b[1] - a[1]
+        jump = abs(dr) + abs(dc) == 2
+        direction = STEP_TO_DIR[(dr // 2, dc // 2) if jump else (dr, dc)]
+        if direction != held:
+            if held:
+                game.release(held)
+                wait(game.player_moved_at + game.player_move_ms + hesitate_ms)  # arrive, then hesitate
+            game.press(direction)
+            held = direction
+        if jump:
+            game.press_jump()
+    while game.status is Status.PLAYING and game.player != game.maze.exit:
+        wait(game.clock + 1)
+    return smallest
+
+
+# --- R13: the Reaper chases on its own clock -------------------------------------------
+
+def test_R13_the_reaper_waits_for_the_first_step_then_moves_on_its_own_clock():
+    """R13: the chase starts at the player's first step; after that the Reaper steps every REAPER_STEP_MS."""
+    game = realtime()
+    game.update(5000)
+    assert game.reaper == game.maze.reaper_start  # nobody has moved yet
+    game.press("right")
+    game.release("right")
+    assert game.player == (1, 6)
+    start = game.reaper
+    game.update(REAPER_STEP_MS - 1)
+    assert game.reaper == start
+    game.update(1)
+    assert game.reaper == (1, 2)
+    game.update(REAPER_STEP_MS)
+    assert game.reaper == (1, 3)
+
+
+def test_R13_a_player_who_stands_still_is_caught():
+    """R13: there is no standing 'four blocks away' any more: the Reaper closes in on a still player."""
+    game = realtime()
+    game.press("right")
+    game.release("right")  # one step, then nothing
+    game.update(REAPER_STEP_MS * 4)
+    assert game.reaper == (1, 5) and game.status is Status.PLAYING  # right behind
+    game.update(REAPER_STEP_MS)
+    assert game.status is Status.CAUGHT and game.hurt_by == "reaper" and game.lives == 2
+
+
+def test_R13_the_reaper_closes_in_while_the_player_hesitates():
+    """R13: the gap shrinks with every Reaper step the player doesn't answer."""
+    game = realtime()
+    game.press("right")
+    game.release("right")
+    gaps = []
+    for _ in range(4):
+        game.update(REAPER_STEP_MS)
+        gaps.append(game.reaper_distance())
+    assert gaps == [4, 3, 2, 1]
+
+
+def test_R13_the_reaper_is_a_little_slower_than_a_runner():
+    """R13: running beats the Reaper's pace, and jumping beats it by more."""
+    assert REAPER_STEP_MS > PLAYER_STEP_MS
+    assert JUMP_MS / 2 < PLAYER_STEP_MS < REAPER_STEP_MS
+    game = realtime(LANE)
+    game.press("right")
+    game.update(PLAYER_STEP_MS * 5)
+    assert game.reaper_distance() > 3
+
+
+def test_R13_a_clean_run_escapes_with_the_reaper_never_closer_than_4():
+    """R13: holding the keys along the path wins, and the gap never drops below the start gap."""
+    game = realtime()
+    smallest = run_route(game)
+    assert game.status is Status.WON
+    assert smallest >= 4
+    assert 14_000 < game.run_ms < 17_000  # about 15 s
+
+
+def test_R13_a_hesitant_player_still_escapes_but_a_dawdler_is_caught():
+    """R13: stopping HESITANT_MS at every bend still escapes, with the Reaper close (3 tiles or fewer);
+    stopping CAUGHT_MS at every bend gets the player caught."""
+    game = realtime()
+    smallest = run_route(game, hesitate_ms=HESITANT_MS)
+    assert game.status is Status.WON and smallest <= 3
+    game = realtime()
+    run_route(game, hesitate_ms=CAUGHT_MS)
+    assert game.status is Status.CAUGHT and game.hurt_by == "reaper"
+
+
+def test_R13_resume_puts_both_back_and_waits_for_the_first_step_again():
+    """R13 / R4: after a lost life the Reaper waits at its start until the player moves again."""
+    game = realtime()
+    game.press("right")
+    game.update(PLAYER_STEP_MS * 3 + 1)  # (1,6) (1,7) (1,8), then into the open grave at (1,9)
+    assert game.status is Status.CAUGHT and game.hurt_by == "open grave"
+    assert game.resume() is Outcome.RESUMED
+    assert game.held == []  # keys held before the fall are forgotten
+    game.update(3000)
+    assert (game.player, game.reaper) == (game.maze.player_start, game.maze.reaper_start)
+    game.press("right")
+    game.update(REAPER_STEP_MS)
+    assert game.reaper == (1, 2)
+
+
+def test_R13_nothing_moves_once_the_game_has_ended():
+    """R13: after a catch, a fall or a win, the clock runs on but nobody moves."""
+    game = realtime()
+    game.press("left")
+    game.update(PLAYER_STEP_MS * 2)  # walks into the Reaper
+    assert game.status is Status.CAUGHT
+    player, reaper = game.player, game.reaper
+    game.press("right")
+    game.update(5000)
+    assert (game.player, game.reaper) == (player, reaper)
+
+
+def test_R13_turn_based_games_are_unchanged():
+    """R13: without realtime (the --text game) the Reaper still steps once per move and update() does nothing."""
+    game = Game()
+    game.update(10_000)
+    assert game.reaper == game.maze.reaper_start
+    game.move("right")
+    assert game.reaper == (1, 2)
+
+
+# --- R14: smooth flow: hold to run, cornering, no stalls ------------------------------------
+
+def test_R14_a_press_moves_at_once():
+    """R14: a key pressed while the player is ready moves them straight away, with no wait for a frame."""
+    game = realtime()
+    game.press("right")
+    assert game.player == (1, 6) and game.player_moved_at == game.clock
+
+
+def test_R14_holding_a_key_runs_at_a_steady_pace():
+    """R14: while a key is held the player moves a tile every PLAYER_STEP_MS, with no gap between steps."""
+    game = realtime(LANE)
+    game.press("right")
+    starts = [game.player_moved_at]
+    for _ in range(4):
+        game.update(PLAYER_STEP_MS)
+        starts.append(game.player_moved_at)
+    assert game.player == (1, 9)
+    assert [b - a for a, b in zip(starts, starts[1:])] == [PLAYER_STEP_MS] * 4
+
+
+def test_R14_releasing_the_key_stops_at_the_next_tile():
+    """R14: letting go finishes the step under way and then stops."""
+    game = realtime(LANE)
+    game.press("right")
+    game.update(PLAYER_STEP_MS / 2)
+    game.release("right")
+    game.update(PLAYER_STEP_MS * 5)
+    assert game.player == (1, 5)
+
+
+def test_R14_presses_during_a_step_wait_for_it_to_finish():
+    """R14: the player can't outrun their own legs: a tap mid-step acts when the step ends."""
+    game = realtime(LANE)
+    game.press("right")
+    game.release("right")
+    game.press("right")  # tapped again at once
+    game.release("right")
+    assert game.player == (1, 5)  # still on the first step
+
+
+def test_R14_motion_records_where_and_when_each_figure_set_off():
+    """R14: the window draws each figure part of the way from where it was, so Game records the motion."""
+    game = realtime(LANE)
+    game.press("right")
+    assert (game.player_from, game.player, game.player_move_ms) == ((1, 4), (1, 5), PLAYER_STEP_MS)
+    game.update(REAPER_STEP_MS)
+    assert (game.reaper_from, game.reaper, game.reaper_moved_at) == ((1, 1), (1, 2), REAPER_STEP_MS)
+    assert game.reaper_move_ms == REAPER_STEP_MS
+
+
+def test_R14_cornering_turns_as_soon_as_the_way_opens():
+    """R14: holding Right and pressing Down early keeps running right until Down is open, then turns."""
+    game = realtime(LANE)
+    game.press("right")
+    game.press("down")  # pressed early: below is a row of gravestones
+    assert game.player == (1, 5) and game.bumped is None
+    game.update(PLAYER_STEP_MS * 6)
+    assert game.player == (2, 10)  # ran right to the gap at column 10, then turned down
+    assert game.facing == "down"
+
+
+def test_R14_releasing_the_newer_key_falls_back_to_the_older_one():
+    """R14: with Right still held, letting go of Down carries on running right."""
+    game = realtime(LANE)
+    game.press("right")
+    game.press("down")
+    game.release("down")
+    game.update(PLAYER_STEP_MS * 2)
+    assert game.player == (1, 7)
+
+
+def test_R14_a_bump_stops_the_run_but_a_new_key_acts_at_once():
+    """R14: running into an obstacle stops and says so once; another key then moves without delay."""
+    game = realtime("#########\n#R  P+  #\n#     E #\n#########")
+    game.press("right")
+    assert game.events[-1] is Outcome.WALL and game.bumped == "gravestone"
+    game.events.clear()
+    game.update(PLAYER_STEP_MS * 3)
+    assert game.events == [] and game.player == (1, 4)  # no repeated bumping
+    game.press("down")
+    assert game.player == (2, 4)
+
+
+def test_R14_events_tell_the_window_what_each_action_did():
+    """R14: moves, bumps and failed jumps are queued as Outcome events for the window's messages."""
+    game = realtime()
+    game.press_jump()  # nothing to jump at the start
+    game.press("up")    # the fence
+    game.release("up")
+    game.press("right")
+    assert game.events == [Outcome.NO_JUMP, Outcome.WALL, Outcome.MOVED]
+
+
+# --- R10 in real time: the jump --------------------------------------------------------------
+
+def test_R10_a_jump_covers_two_tiles_in_JUMP_MS():
+    """R10/R13: a jump lands two tiles on and the next action waits JUMP_MS."""
+    game = realtime()
+    for _ in range(3):
+        game.press("right")
+        game.release("right")
+        game.update(PLAYER_STEP_MS)
+    assert game.player == (1, 8)
+    game.press_jump()
+    assert game.player == (1, 10) and game.jumped and game.player_move_ms == JUMP_MS
+    game.press("right")
+    assert game.player == (1, 10)
+    game.update(JUMP_MS)
+    assert game.player == (1, 11)
+
+
+def test_R10_a_jump_pressed_a_moment_early_is_remembered():
+    """R10/R14: Up pressed a tile before the hurdle, while running, leaps it as soon as it is in front."""
+    game = realtime()
+    game.press("right")
+    game.update(PLAYER_STEP_MS * 2)  # on the way from (1,7) to (1,8), running
+    game.press_jump()                # a tile too early: the open grave is at (1,9)
+    assert game.player == (1, 8)
+    game.update(PLAYER_STEP_MS)
+    assert game.player == (1, 10) and game.lives == 3 and game.status is Status.PLAYING
+
+
+def test_R10_a_remembered_jump_is_forgotten_after_JUMP_BUFFER_MS():
+    """R10: an Up pressed too early does not hang around: after JUMP_BUFFER_MS it is dropped."""
+    assert 150 <= JUMP_BUFFER_MS <= 500
+    game = realtime(LANE)
+    game.press("right")
+    game.press_jump()  # nothing to jump on this lane
+    game.update(JUMP_BUFFER_MS + PLAYER_STEP_MS * 2)
+    assert game.player == (1, 8) and not game.jumped
+
+
+def test_R10_up_in_front_of_a_hurdle_after_a_bump_jumps_at_once():
+    """R10: a player who stopped against a coffin leaps it the moment Up is pressed."""
+    game = realtime("##########\n#R  PC   #\n#      E #\n##########")
+    game.press("right")
+    assert game.bumped == "coffin" and game.player == (1, 4)
+    game.press_jump()
+    assert game.player == (1, 6)
+
+
+def test_R10_running_into_a_hazard_without_jumping_costs_a_life():
+    """R7/R14: holding a key straight into an open grave loses a life, as stepping on it always did."""
+    game = realtime()
+    game.press("right")
+    game.update(PLAYER_STEP_MS * 3)
+    assert game.status is Status.CAUGHT and game.hurt_by == "open grave" and game.player == (1, 9)
+
+
+def test_R13_reaching_the_exit_wins_and_records_the_time():
+    """R13: the run's time counts from the first step to the exit (shown on the win screen)."""
+    game = realtime("#########\n#R  P  E#\n#########")
+    game.update(1000)
+    game.press("right")
+    game.update(PLAYER_STEP_MS * 2)
+    assert game.status is Status.WON
+    assert game.run_ms == PLAYER_STEP_MS * 2
+    game.update(1000)
+    assert game.run_ms == PLAYER_STEP_MS * 2

@@ -302,9 +302,10 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 * *Problem:* the Reaper moved only when the player moved, so it always stood "4 blocks away" and could never close in on a player who stopped.
 * **Its own clock (window).** After the player's first step, the Reaper takes one step along a shortest path to the player every `REAPER_STEP_MS` = **200 ms** *(default)*, whether or not the player moves. A player who stands still is caught.
 * **A little slower than a runner.** The player runs one tile per `PLAYER_STEP_MS` = **180 ms** and jumps 2 tiles in `JUMP_MS` = **270 ms** *(defaults)*. On a clean run the gap grows; every bump, pause or wrong turn lets the Reaper close in.
-  * Simulated: a perfect run takes about 15 s and the Reaper is never closer than 4 tiles.
-  * A player who loses 150 ms at every jump and every turn still escapes, with the Reaper at times 3 tiles behind.
-  * One who loses 250 ms at each is caught.
+  * Measured (tests drive the clock): a perfect run takes about 15 s, and the Reaper is never closer than 4 tiles.
+  * A player who stops for half a second at each of the 7 bends still escapes, with the Reaper 2 tiles behind.
+  * One who stops for 0.6 s or more at each bend is caught.
+  * Holding a key into a hazard without jumping costs a life, as stepping on one always did.
 * **Logic, not timers.** The rules for time live in `game.py`, on a clock that the window advances: `Game(realtime=True)` and `Game.update(ms)`. Tests can then run a whole chase in a few milliseconds. Why: `docs/decisions/0005-realtime-chase-on-a-game-clock.md`.
 * `--text` stays turn-based (the product owner's choice): a line-based terminal can't run a clock.
 
