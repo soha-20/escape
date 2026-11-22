@@ -102,7 +102,7 @@ def route_keys(game, goal=None):
 
     R12: the hurdles on the path are always met running straight, so Up jumps the right way."""
     names = {(0, 1): "Right", (0, -1): "Left", (1, 0): "Down", (-1, 0): "w"}
-    path = game.maze.player_route(game.player, goal or game.maze.exit)
+    path = game.maze.player_route(game.player, goal) if goal else game.route_out()  # R16: by the key
     keys = []
     for a, b in zip(path, path[1:]):
         dr, dc = b[0] - a[0], b[1] - a[1]
@@ -920,3 +920,106 @@ def test_R15_losing_the_keyboard_lets_go_of_held_keys(window):
     window._release_all()
     window.advance(PLAYER_STEP_MS * 4)
     assert window.game.player == (1, 6)
+
+
+# --- R16: the key and the locked gate in the window ----------------------------------------
+
+def test_R16_the_key_and_a_padlock_on_the_gate_are_drawn(window):
+    """R16: a golden key lies on its tile and a padlock hangs on the gate until the key is found."""
+    press(window, "space")
+    maze = window.game.maze
+    kx, ky = centre_of(window, "key")
+    assert (int(ky // TILE), int(kx // TILE)) == maze.key
+    lx, ly = centre_of(window, "lock")
+    assert (int(ly // TILE), int(lx // TILE)) == maze.exit
+    assert "the gate is locked" in texts(window, "hud_key")[0]
+
+
+def test_R16_picking_up_the_key_opens_the_gate(window):
+    """R16: running onto the key takes it: key and padlock vanish, the HUD and a message say so."""
+    press(window, "space", *route_keys(window.game, window.game.maze.key))
+    assert window.game.has_key
+    assert not window.canvas.find_withtag("key") and not window.canvas.find_withtag("lock")
+    assert texts(window, "hud_message") == ["You found the key! Now run for the gate."]
+    assert "found" in texts(window, "hud_key")[0]
+
+
+def test_R16_a_new_game_puts_the_key_back(window):
+    """R16: after GAME OVER, R starts a new game with the key back in its yard and the gate locked."""
+    window.game.has_key = True
+    lose_all_lives(window)
+    press(window, "r")
+    assert not window.game.has_key
+    assert window.canvas.find_withtag("key") and window.canvas.find_withtag("lock")
+
+
+def test_R16_the_locked_gate_says_to_find_the_key(window):
+    """R16: walking into the gate without the key explains why it won't open."""
+    press(window, "space")
+    window.game.player = (12, 14)
+    press(window, "Down")
+    assert window.game.player == (12, 14)
+    assert texts(window, "hud_message") == ["The gate is locked. Find the key first."]
+
+
+# --- R17: the surge, seen in the window ------------------------------------------------------
+
+def test_R17_a_surging_reaper_flares_and_the_hud_warns(window):
+    """R17: standing still makes the Reaper surge: its aura grows and the status line says so."""
+    press(window, "space", "Right")
+    calm = window.canvas.bbox("aura")
+    while not window.game.surging and window.game.status is Status.PLAYING:
+        window.advance(20)
+    window.advance(0)
+    assert texts(window, "hud_status") == ["The Reaper quickens! Keep running!"]
+    surging = window.canvas.bbox("aura")
+    assert surging[2] - surging[0] > (calm[2] - calm[0]) * 1.15
+
+
+# --- R18: the best time in the window ----------------------------------------------------------
+
+def win_once(win):
+    press(win, *route_keys(win.game))
+    assert win.game.status is Status.WON
+
+
+def test_R18_an_escape_shows_its_time_the_best_and_new_best(window):
+    """R18: the first escape is a new best: the win screen shows the time, the best and NEW BEST!."""
+    press(window, "space")
+    win_once(window)
+    assert window.new_best and window.best.best_ms == window.game.run_ms
+    assert any(t.startswith("Best time") for t in texts(window, "best_time"))
+    assert texts(window, "new_best") == ["NEW BEST!"]
+
+
+def test_R18_a_slower_escape_keeps_the_old_best(window):
+    """R18: a slower second run is no new best; the HUD shows the best during play."""
+    press(window, "space")
+    win_once(window)
+    best = window.best.best_ms
+    press(window, "r")
+    assert texts(window, "hud_best") == [f"Best {best / 1000:.1f} s"]
+    press(window, "Left", "Right")  # a little dawdle first
+    win_once(window)
+    assert not window.new_best and window.best.best_ms == best
+    assert not window.canvas.find_withtag("new_best")
+
+
+def test_R18_the_best_time_is_saved_for_the_next_game(tk_root, tmp_path):
+    """R18: a window given a file saves the best there, and a later window reads it back."""
+    path = tmp_path / "best.json"
+    win = GameWindow(tk.Toplevel(tk_root), autorun=False, best_file=path)
+    win.root.withdraw()
+    press(win, "space")
+    win_once(win)
+    win.close()
+    again = GameWindow(tk.Toplevel(tk_root), autorun=False, best_file=path)
+    again.root.withdraw()
+    press(again, "space")
+    assert again.best.best_ms is not None and texts(again, "hud_best")[0].startswith("Best ")
+    again.close()
+
+
+def test_R18_test_windows_write_no_file(window):
+    """R18: a window without best_file (as in every other test) keeps the best only in memory."""
+    assert window.best.path is None

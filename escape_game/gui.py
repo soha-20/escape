@@ -20,7 +20,8 @@ import tkinter as tk
 
 from .game import MAX_LIVES, Game, Outcome, Status
 from .maze import WARNING
-from .render import GAME_OVER, LIFE_LOST, bump_line, jump_line, reaper_line
+from .records import DEFAULT_PATH, BestTime
+from .render import GAME_OVER, KEY_FOUND, LIFE_LOST, bump_line, jump_line, reaper_line
 
 TILE = 38            # pixels per graveyard tile: the whole 29 x 14 graveyard fits a 1280 x 720 screen
 SCALE = TILE / 40    # figures are designed on a 40-pixel tile
@@ -82,6 +83,8 @@ CLOAK = "#0c0910"        # R11: the reaper
 CLOAK_EDGE = "#3d2a4a"
 BONE = "#ddd5c0"
 BLADE = "#c9d3da"
+GOLD = "#ffd54a"         # R16: the gate key
+GOLD_DARK = "#a8791a"
 
 FONT = "Segoe UI"
 TITLE_FONT = "Impact"  # Tk falls back to a default font if it is missing
@@ -299,9 +302,12 @@ class GameWindow:
     SCREEN_MIST = 4
     POSE_EVERY = 3   # R15: rebuild the figures' shapes every 3rd frame; move them in between
 
-    def __init__(self, root: tk.Tk, autorun: bool = True):
-        """autorun=False leaves the frame timer off: tests then drive time with advance(ms)."""
+    def __init__(self, root: tk.Tk, autorun: bool = True, best_file=None):
+        """autorun=False leaves the frame timer off: tests then drive time with advance(ms).
+        best_file (R18) is where the best time is kept; None keeps it only while the window is open."""
         self.root = root
+        self.best = BestTime(best_file)  # R18
+        self.new_best = False            # R18: the last escape beat the best time
         self.game = Game(realtime=True)
         maze = self.game.maze
         self.width = maze.width * TILE
@@ -332,6 +338,8 @@ class GameWindow:
         self._title_lift = 0.0
         self._drawn = None            # R15: where the figures were last drawn, and in what pose
         self._draw_graveyard()        # R15: once per window; it never changes or moves
+        self._had_key = False
+        self._draw_key_and_lock()     # R16
         self.redraw()
         self._after = None
         if autorun:
@@ -364,6 +372,8 @@ class GameWindow:
                 self.face = 1
                 self.state = self.PLAYING
                 self.message = ""
+                self._had_key = False
+                self._draw_key_and_lock()  # R16: the key is back in its yard, the gate locked
                 self.redraw()
             return
         if keysym in JUMP_KEYS:  # R10
@@ -416,11 +426,17 @@ class GameWindow:
             else:
                 self.message = ""
         game.events.clear()
+        if game.has_key and not self._had_key:  # R16: the key is picked up
+            self._had_key = True
+            self.message = KEY_FOUND
+            self._draw_key_and_lock()
         if game.facing in ("left", "right"):
             self.face = -1 if game.facing == "left" else 1
         if self.state == self.PLAYING and game.status is not Status.PLAYING:
             self.state = self.CAUGHT if game.status is Status.CAUGHT else self.OVER
             self._screen_shown = False
+            if game.status is Status.WON:  # R18
+                self.new_best = self.best.record(game.run_ms)
 
     def _motion_done(self) -> bool:
         """R8: both figures have finished the step they were taking."""
@@ -749,6 +765,25 @@ class GameWindow:
             cv.create_line(x, y0 + 13 * k, x, y0 + ART - 4, fill=iron, width=2, tags="exit")
         cv.create_text(cx, y0 + 26 * k, text="EXIT", fill="#b8ffcf", font=(FONT, 8, "bold"), tags="exit")
 
+    # --- R16: the key and the locked gate (not part of the graveyard: they come and go) ---
+    def _draw_key_and_lock(self):
+        """A golden key on its tile and a padlock on the gate, while the player hasn't got the key."""
+        cv, game = self.canvas, self.game
+        cv.delete("key", "lock")
+        if game.maze.key is None or game.has_key:
+            return
+        x, y = game.maze.key[1] * TILE + TILE / 2, game.maze.key[0] * TILE + TILE / 2
+        cv.create_oval(x - 12, y - 12, x + 12, y + 12, outline=GOLD, width=2, tags="key")  # a glint
+        cv.create_oval(x - 10, y - 6, x - 2, y + 2, outline=GOLD, width=3, tags="key")     # the bow
+        cv.create_line(x - 2, y - 2, x + 10, y - 2, fill=GOLD, width=3, tags="key")       # the shaft
+        for bx in (6, 10):                                                                 # the bit
+            cv.create_line(x + bx, y - 2, x + bx, y + 4, fill=GOLD_DARK, width=2, tags="key")
+        ex, ey = game.maze.exit[1] * TILE + TILE / 2, game.maze.exit[0] * TILE + TILE / 2
+        cv.create_arc(ex - 6, ey - 13, ex + 6, ey - 1, start=0, extent=180, style="arc", outline=GOLD_DARK,
+                      width=3, tags="lock")
+        cv.create_rectangle(ex - 9, ey - 6, ex + 9, ey + 8, fill=GOLD, outline=GOLD_DARK, width=2, tags="lock")
+        cv.create_oval(ex - 2, ey - 2, ex + 2, ey + 2, fill="#2b1d05", outline="", tags="lock")
+
     def _draw_mist(self):
         """R11: pale wisps of mist lying over the graveyard. R15: they stay still during play, because
         moving them would repaint most of the graveyard every frame."""
@@ -797,8 +832,9 @@ class GameWindow:
                            width=2, tags=("actor", "torch_glow", "player_group"))
         period = heartbeat_period_ms(self.game.reaper_distance())
         pulse = 0.5 + 0.5 * math.sin(2 * math.pi * (t % period) / period)
+        fury = 1.35 if self.game.surging else 1.0  # R17: a surging Reaper's aura flares
         for k, colour in ((1.0, BLOOD), (0.7, RED)):  # R11: rings of red light pulse on the ground
-            ar = TILE * k * (0.5 + 0.15 * pulse)
+            ar = TILE * k * fury * (0.5 + 0.15 * pulse)
             cv.create_oval(rx - ar, ry + 11 - ar * 0.35, rx + ar, ry + 11 + ar * 0.35, fill="", outline=colour,
                            width=2, tags=("actor", "aura", "reaper_group"))
         figures = [(player[0], self._draw_player_at, (px, py, lift, swing)),
@@ -824,14 +860,17 @@ class GameWindow:
         hud, game = self.hud, self.game
         playing = self.state == self.PLAYING and not self._screen_shown
         signs = tuple(s.text for s in game.signs_here()) if playing else ()
-        key = (self.state, playing, game.lives, self.message, signs)
+        key = (self.state, playing, game.lives, self.message, signs, game.has_key, self.best.best_ms)
         if key != self._hud_key:
             self._hud_key = key
             self._build_hud(playing)
         if playing:
             dist = game.reaper_distance()
             self._config(hud, "hud_turn", text=f"Time {game.run_ms / 1000:.1f} s")
-            self._config(hud, "hud_status", text=reaper_line(dist, color=False), fill=danger_colour(dist))
+            if game.surging:  # R17
+                self._config(hud, "hud_status", text="The Reaper quickens! Keep running!", fill=RED)
+            else:
+                self._config(hud, "hud_status", text=reaper_line(dist, color=False), fill=danger_colour(dist))
 
     def _build_hud(self, playing):
         hud, game = self.hud, self.game
@@ -846,6 +885,13 @@ class GameWindow:
         text_x = 24 + HEART_GAP * MAX_LIVES
         hud.create_text(text_x, 19, anchor="w", text="", fill="#d0d0e0", font=(FONT, 13, "bold"),
                         tags=("hud", "hud_turn"))
+        best = self.best.best_ms  # R18
+        hud.create_text(text_x + 130, 19, anchor="w", text=f"Best {best / 1000:.1f} s" if best else "Best  -",
+                        fill="#b8a0d8", font=(FONT, 13, "bold"), tags=("hud", "hud_best"))
+        if game.maze.key is not None:  # R16
+            hud.create_text(text_x + 260, 19, anchor="w",
+                            text="Key: found - run for the gate!" if game.has_key else "Key: not yet - the gate is locked",
+                            fill=GOLD if game.has_key else "#c08a3a", font=(FONT, 13, "bold"), tags=("hud", "hud_key"))
         hud.create_text(text_x, 42, anchor="w", text="", fill=GREY, font=(FONT, 13, "bold"),
                         tags=("hud", "hud_status"))
         if self.message:  # bump and jump messages, right under the controls line
@@ -915,6 +961,16 @@ class GameWindow:
             cv.create_line(*pts, fill=shade(MIST, 0.75 - 0.12 * row), width=2, smooth=True,
                            tags=("overlay", "mist", "screen_mist"))
 
+    def _draw_best_time(self):
+        """R18: the run's time against the best, and a flourish for a new best."""
+        cv, mid = self.canvas, self.width / 2
+        best = self.best.best_ms
+        cv.create_text(mid, 160, text=f"Best time {best / 1000:.1f} s", fill="#d8c8f0", font=(FONT, 16, "bold"),
+                       tags=("overlay", "best_time"))
+        if self.new_best:
+            cv.create_text(mid, 195, text="NEW BEST!", fill=GOLD, font=(TITLE_FONT, 26),
+                           tags=("overlay", "new_best", "blink"))
+
     def _title(self, y, text, colour, size):
         """R11: a big title with a dark, blood-red drop shadow."""
         cv = self.canvas
@@ -939,6 +995,7 @@ class GameWindow:
                                       "Something breathes behind you. It will not wait.\n\n"
                                       "Hold an arrow key to run along the gravel path.\n"
                                       "Press ↑ to leap coffins, open graves and thorns.\n"
+                                      "The gate is locked: fetch the key on the way.\n"
                                       "Read the signposts. Find the EXIT gate.\n"
                                       "Don't stop. Don't look back.",
                        fill="#e0e0ea", font=(FONT, 15), justify="center", tags="overlay")
@@ -970,6 +1027,7 @@ class GameWindow:
             draw_player(cv, mid, 330, 4.4, tag="overlay")
             title, colour = "YOU ESCAPED!", GREEN
             sub = f"You burst into the night air after {game.run_ms / 1000:.1f} seconds."
+            self._draw_best_time()  # R18
         elif game.status is Status.LOST:
             draw_reaper(cv, mid, 400, 3.0, tag="overlay", t=self.ms)
             self._draw_big_hearts(180)
@@ -985,6 +1043,6 @@ class GameWindow:
 
 def run() -> int:
     root = tk.Tk()
-    GameWindow(root)
+    GameWindow(root, best_file=DEFAULT_PATH)  # R18: the best time is kept between games
     root.mainloop()
     return 0
