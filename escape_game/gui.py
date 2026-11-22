@@ -1,32 +1,38 @@
 """Graphical game window (tkinter): animated figures, a moonlit graveyard, glowing signs.
 
-Tk on Windows ignores the canvas `stipple` option, so nothing here relies on transparency:
-glows are rings, mist is drawn as thin wisps, and the torch light is a warm tint on the tiles.
+Since round 5 the window plays in real time (R13, R14): keys held down are passed to the rules
+(Game.press/release/press_jump) and every frame advances the game clock by the real time that passed.
 
-The rules all live in game.py; this module only draws the game and turns key presses into moves.
-The game is turn-based, but each turn is shown as a short slide (R8): the background is built
-once per turn and scrolled, while the figures, mist and glows are redrawn every frame.
+Smooth frames (R14): on Windows a full repaint of the canvas takes 200-800 ms, so nothing may repaint
+it during play. The whole graveyard is drawn once per window and never moves (no camera); each frame
+redraws only the figures and the glows around them; the HUD lives on its own canvas; and the red danger
+border is the colour of a frame around the canvas, not canvas items.
+
+Tk on Windows ignores the canvas `stipple` option, so nothing here relies on transparency:
+glows are rings, and mist is drawn as thin wisps.
+
+The rules all live in game.py; this module only draws the game and passes on keys and time.
 """
 
 import math
 import time
 import tkinter as tk
-from dataclasses import dataclass
 
 from .game import MAX_LIVES, Game, Outcome, Status
 from .maze import WARNING
 from .render import GAME_OVER, LIFE_LOST, bump_line, jump_line, reaper_line
 
-TILE = 52            # pixels per maze tile
-VIEW_COLS, VIEW_ROWS = 15, 9   # the camera shows this many tiles, centred on the player
+TILE = 38            # pixels per graveyard tile: the whole 29 x 14 graveyard fits a 1280 x 720 screen
 SCALE = TILE / 40    # figures are designed on a 40-pixel tile
-HUD_HEIGHT = 150
-TICK_MS = 40         # one animation frame
-SLIDE_FRAMES = 5     # R8: a step slides over 5 frames (0.2 s)
-JUMP_FRAMES = 7      # R10: a jump takes a little longer
+ART = 52             # the tile art is designed on 52-pixel tiles, then scaled to TILE
+ART_SCALE = ART / 40
+HUD_HEIGHT = 90
+BORDER = 5           # R14: the danger frame around the graveyard
+FRAME_MS = 20        # R14: one animation frame
+MAX_FRAME_MS = 100   # R14: a stalled frame never moves the game on by more than this
 JUMP_LIFT = 24       # R10: how high the player rises, in design pixels (0.6 tile)
-HEART_SIZES = (30, 25)   # HUD heart font size: beat, rest
-HEART_GAP = 40           # pixels between HUD hearts
+HEART_SIZES = (26, 21)   # HUD heart font size: beat, rest
+HEART_GAP = 36           # pixels between HUD hearts
 
 KEY_DIRECTIONS = {  # R10: the Up arrow jumps; W still moves north
     "w": "up", "W": "up",
@@ -35,13 +41,16 @@ KEY_DIRECTIONS = {  # R10: the Up arrow jumps; W still moves north
     "Right": "right", "d": "right", "D": "right",
 }
 JUMP_KEYS = {"Up"}  # R10
-CONTROLS = "W A S D / ← ↓ →  move     ↑  jump     Esc  quit"
+CONTROLS = "Hold W A S D / ← ↓ →  to run     ↑  jump     Esc  quit"
 
 # palette
 BLACK = "#000000"
 GRASS = "#4f7a3c"        # R6: the graveyard lawn
 GRASS_DARK = "#2f4a25"
 GRASS_BLADE = "#7fae5a"
+GRAVEL = "#a39478"       # R12: the path
+GRAVEL_DARK = "#6e6352"
+GRAVEL_LIGHT = "#cfc2a6"
 DIRT = "#6b4f33"
 DIRT_DARK = "#3e2c1c"
 PIT = "#050304"
@@ -95,19 +104,7 @@ def mix(a: str, b: str, t: float) -> str:
     return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(ca, cb))
 
 
-MOONLIGHT = 0.8     # R9: every tile in view is at least this bright
-TORCH_REACH = 3.5   # tiles; the torch glow fades to nothing at this distance
-
-
-def torch_glow(centre, pos) -> float:
-    """R9: how strongly the torch warms a tile: 1 under the player, fading to 0 at TORCH_REACH."""
-    dist = math.hypot(pos[0] - centre[0], pos[1] - centre[1])
-    return max(0.0, 1.0 - dist / TORCH_REACH)
-
-
-def light_level(game: Game, pos) -> float:
-    """R9: moonlight everywhere, a little brighter near the torch. Never dark."""
-    return MOONLIGHT + (1 - MOONLIGHT) * torch_glow(game.player, pos)
+MOONLIGHT = 0.8     # R9: every tile is drawn at this brightness
 
 
 def lit(colour: str, light: float, warmth: float) -> str:
@@ -125,24 +122,6 @@ def heartbeat_period_ms(distance: int) -> int:
     return 450
 
 
-def camera_at(maze, pos) -> tuple[float, float]:
-    """Top-left tile of a camera centred on pos (may be fractional while sliding), kept inside the maze."""
-    top = min(max(pos[0] - VIEW_ROWS // 2, 0), max(maze.height - VIEW_ROWS, 0))
-    left = min(max(pos[1] - VIEW_COLS // 2, 0), max(maze.width - VIEW_COLS, 0))
-    return top, left
-
-
-def camera_origin(game: Game) -> tuple[int, int]:
-    """Top-left tile of the camera view: centred on the player, kept inside the maze."""
-    return camera_at(game.maze, game.player)
-
-
-def in_view(origin, pos) -> bool:
-    """True if pos lies (at least partly) inside the camera view whose top-left tile is origin."""
-    return (origin[0] - 1 < pos[0] < origin[0] + VIEW_ROWS
-            and origin[1] - 1 < pos[1] < origin[1] + VIEW_COLS)
-
-
 def danger_colour(distance: int) -> str:
     if distance >= 6:
         return GREY
@@ -151,14 +130,13 @@ def danger_colour(distance: int) -> str:
     return RED
 
 
-def ease(t: float) -> float:
-    """R8: smooth start and stop for a slide (0 -> 0, 1 -> 1)."""
-    t = max(0.0, min(1.0, t))
-    return t * t * (3 - 2 * t)
+def progress(clock: float, started: float, duration: float) -> float:
+    """R14: how far (0 .. 1) a figure is through a move that started at `started` and lasts `duration`."""
+    return max(0.0, min(1.0, (clock - started) / duration))
 
 
 def tween(a, b, t: float) -> tuple[float, float]:
-    """R8: the point a fraction t of the way from tile a to tile b."""
+    """R8: the point a fraction t of the way from tile a to tile b (R14: at a constant speed)."""
     return a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
 
 
@@ -314,162 +292,260 @@ def draw_reaper(cv: tk.Canvas, cx: float, cy: float, s: float = 1.0, tag="reaper
 
 # --- the window ------------------------------------------------------------
 
-@dataclass
-class Motion:
-    """R8: one turn being shown as a slide (or, R10, a jump) from the old tiles to the new ones."""
-    player_from: tuple
-    player_to: tuple
-    reaper_from: tuple
-    reaper_to: tuple
-    jump: bool
-    frames: int
-    frame: int = 0
-
-    @property
-    def t(self) -> float:
-        return self.frame / self.frames
-
+# --- the window ------------------------------------------------------------
 
 class GameWindow:
     INTRO, PLAYING, CAUGHT, OVER = "intro", "playing", "caught", "over"
-    MIST_PUFFS = 6
+    SCREEN_MIST = 4
+    POSE_EVERY = 3   # R14: rebuild the figures' shapes every 3rd frame; move them in between
 
-    def __init__(self, root: tk.Tk, animate: bool = True):
+    def __init__(self, root: tk.Tk, autorun: bool = True):
+        """autorun=False leaves the frame timer off: tests then drive time with advance(ms)."""
         self.root = root
-        self.animate = animate
-        self.game = Game()
-        self.motion: Motion | None = None
-        self.face = 1
-        self.width = VIEW_COLS * TILE
-        self.map_height = VIEW_ROWS * TILE
-        self.mist = [((i * 197) % self.width, 60 + (i * 131) % (self.map_height - 120), 0.6 + 0.25 * (i % 3))
-                     for i in range(self.MIST_PUFFS)]  # (x, y, speed in px per frame)
+        self.game = Game(realtime=True)
+        maze = self.game.maze
+        self.width = maze.width * TILE
+        self.map_height = maze.height * TILE
         root.title("Escape the Grim Reaper")
         root.configure(bg=BLACK)
         root.resizable(False, False)
-        self.canvas = tk.Canvas(root, width=self.width, height=self.map_height + HUD_HEIGHT,
-                                bg=BLACK, highlightthickness=0)
+        self.border = tk.Frame(root, bg=BLACK, padx=BORDER, pady=BORDER)  # R14: the danger frame
+        self.border.pack()
+        self.canvas = tk.Canvas(self.border, width=self.width, height=self.map_height, bg=BLACK,
+                                highlightthickness=0)
         self.canvas.pack()
-        root.bind("<Key>", lambda e: self.on_key(e.keysym))
+        self.hud = tk.Canvas(root, width=self.width + 2 * BORDER, height=HUD_HEIGHT, bg=HUD_BG,
+                             highlightthickness=0)  # R14: its own canvas, so it never repaints the graveyard
+        self.hud.pack()
+        root.bind("<KeyPress>", lambda e: self.on_key(e.keysym))
+        root.bind("<KeyRelease>", lambda e: self.on_key_up(e.keysym))
+        root.bind("<FocusOut>", lambda e: self._release_all())
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.state = self.INTRO
         self.message = ""
         self.ticks = 0
+        self.ms = 0.0                 # animation time (flicker, hover, beats)
+        self.face = 1
+        self._screen_shown = False
+        self._hud_key = None
+        self._configured = {}
         self._title_lift = 0.0
+        self._drawn = None            # R14: where the figures were last drawn, and in what pose
+        self._draw_graveyard()        # R14: once per window; it never changes or moves
         self.redraw()
-        self._after = root.after(TICK_MS, self._tick)
+        self._after = None
+        if autorun:
+            self._last = time.perf_counter()
+            self._next_frame = self._last
+            self._after = root.after(FRAME_MS, self._tick)
 
-    # --- input ---
+    # --- input (R13, R14) ---
     def on_key(self, keysym: str) -> None:
+        """A key went down (Windows repeats this while it is held)."""
         if keysym == "Escape":
             self.close()
             return
-        if self.motion is not None:  # a key during a slide finishes it at once (R8)
-            self.motion = None
-            self.redraw()
+        game = self.game
         if self.state == self.INTRO:
             self.state = self.PLAYING
             self.redraw()
             return
+        if self.state in (self.CAUGHT, self.OVER) and not self._screen_shown:
+            self._show_screen()  # a key while the last step is still on its way shows the screen at once
         if self.state == self.CAUGHT:  # R4: wait for R, then back to the start tiles
-            if keysym in ("r", "R") and self.game.resume() is Outcome.RESUMED:
+            if keysym in ("r", "R") and game.resume() is Outcome.RESUMED:
                 self.state = self.PLAYING
                 self.message = ""
                 self.redraw()
             return
         if self.state == self.OVER:
             if keysym in ("r", "R"):
-                self.game = Game()
+                self.game = Game(realtime=True)
                 self.face = 1
                 self.state = self.PLAYING
                 self.message = ""
                 self.redraw()
             return
-        game = self.game
-        before = game.player, game.reaper
         if keysym in JUMP_KEYS:  # R10
-            outcome = game.jump()
-        elif keysym in KEY_DIRECTIONS:
-            outcome = game.move(KEY_DIRECTIONS[keysym])
+            game.press_jump()
+        elif keysym in KEY_DIRECTIONS:  # R14: held keys run
+            game.press(KEY_DIRECTIONS[keysym])
         else:
             return
+        # R14: no drawing here. Windows repeats a held key ~30 times a second, and drawing a frame
+        # for each repeat doubled the work; the next frame (at most FRAME_MS away) shows the step.
+        self._after_rules()
+
+    def on_key_up(self, keysym: str) -> None:
+        """R14: a movement key came up: the player stops at the next tile."""
+        if keysym in KEY_DIRECTIONS:
+            self.game.release(KEY_DIRECTIONS[keysym])
+
+    def _release_all(self) -> None:
+        """R14: if the window loses the keyboard, no key stays 'held' and the player doesn't run off."""
+        for direction in list(self.game.held):
+            self.game.release(direction)
+
+    # --- time (R13, R14) ---
+    def advance(self, ms: float) -> None:
+        """Let ms milliseconds pass: the rules move on, then one frame is drawn."""
+        self.ticks += 1
+        self.ms += ms
+        if self.state != self.INTRO:
+            self.game.update(ms)
+            self._after_rules()
+        self._frame()
+
+    def _tick(self):
+        now = time.perf_counter()
+        self.advance(min(MAX_FRAME_MS, (now - self._last) * 1000))
+        self._last = now
+        # Keep a steady frame rate: the time spent drawing comes out of the next wait, not on top of it.
+        now = time.perf_counter()
+        self._next_frame = max(self._next_frame + FRAME_MS / 1000, now + 0.005)
+        self._after = self.root.after(round((self._next_frame - now) * 1000), self._tick)
+
+    def _after_rules(self) -> None:
+        """Turn what the rules did into messages and screens."""
+        game = self.game
+        for outcome in game.events:
+            if outcome is Outcome.WALL:
+                self.message = bump_line(game.bumped, "Press ↑")
+            elif outcome is Outcome.NO_JUMP:
+                self.message = jump_line(game.jump_blocked)
+            else:
+                self.message = ""
+        game.events.clear()
         if game.facing in ("left", "right"):
             self.face = -1 if game.facing == "left" else 1
-        if outcome is Outcome.WALL:
-            self.message = bump_line(game.bumped, "Press ↑")
-        elif outcome is Outcome.NO_JUMP:
-            self.message = jump_line(game.jump_blocked)
-        else:
-            self.message = ""
-        if game.status is Status.CAUGHT:
-            self.state = self.CAUGHT
-        elif game.status is not Status.PLAYING:
-            self.state = self.OVER
-        if outcome is Outcome.MOVED and self.animate:
-            self.motion = Motion(before[0], game.player, before[1], game.reaper, game.jumped,
-                                 JUMP_FRAMES if game.jumped else SLIDE_FRAMES)
-        self.redraw()
+        if self.state == self.PLAYING and game.status is not Status.PLAYING:
+            self.state = self.CAUGHT if game.status is Status.CAUGHT else self.OVER
+            self._screen_shown = False
 
-    # --- where things are shown (R8) ---
+    def _motion_done(self) -> bool:
+        """R8: both figures have finished the step they were taking."""
+        g = self.game
+        return (g.clock >= g.player_moved_at + g.player_move_ms
+                and g.clock >= g.reaper_moved_at + g.reaper_move_ms)
+
+    # --- where the figures are shown (R8, R14) ---
     def _shown(self):
-        """(player tile, reaper tile, lift, swing, reaper lean) as drawn now: fractional mid-slide."""
-        m = self.motion
-        if m is None:
-            return self.game.player, self.game.reaper, 0.0, 0.0, 0.0
-        player = tween(m.player_from, m.player_to, m.t if m.jump else ease(m.t))
-        reaper = tween(m.reaper_from, m.reaper_to, ease(m.t))
-        lift = jump_height(m.t) if m.jump else 0.0
-        swing = 0.0 if m.jump or m.player_from == m.player_to else walk_pose(m.t)
-        lean = float(m.reaper_to[1] - m.reaper_from[1]) * math.sin(math.pi * m.t)
+        """(player tile, reaper tile, lift, swing, reaper lean) as drawn now: part of the way through a step."""
+        g = self.game
+        pt = progress(g.clock, g.player_moved_at, g.player_move_ms)
+        rt = progress(g.clock, g.reaper_moved_at, g.reaper_move_ms)
+        player = tween(g.player_from, g.player, pt)  # R14: a constant speed, so a run never stutters
+        reaper = tween(g.reaper_from, g.reaper, rt)
+        moving = pt < 1 and g.player_from != g.player
+        lift = jump_height(pt) if moving and g.jumped else 0.0
+        swing = walk_pose(pt) if moving and not g.jumped else 0.0
+        lean = float(g.reaper[1] - g.reaper_from[1]) * math.sin(math.pi * rt) if rt < 1 else 0.0
         return player, reaper, lift, swing, lean
 
     # --- drawing ---
     def redraw(self) -> None:
+        """Rebuild everything but the graveyard: figures, HUD and the screen for the current state."""
         cv = self.canvas
-        cv.delete("all")
-        player, _, _, _, _ = self._shown()
-        self.origin = camera_at(self.game.maze, player)
-        self._draw_graveyard()
-        cv.addtag_withtag("world", "all")
-        self.world_origin = self.origin
-        self._draw_mist()
-        self._draw_actors()
-        self._draw_danger_border()
+        cv.delete("actor", "overlay")
+        self._drawn = None
+        cv.itemconfigure("world", state="normal")
+        self._screen_shown = False
+        self._hud_key = None
+        self._frame()
+
+    def _show_screen(self) -> None:
+        self.canvas.delete("actor", "overlay")
+        if self.state == self.INTRO:
+            self._draw_intro()
+        elif self.state == self.CAUGHT:
+            self._draw_caught()
+        elif self.state == self.OVER:
+            self._draw_ending()
+        # R14: the graveyard under a screen is hidden, or the drifting mist would repaint all of it
+        self.canvas.itemconfigure("world", state="hidden")
+        self._screen_shown = True
+        self._hud_key = None
+
+    def _frame(self) -> None:
+        """One frame. During play only the figures, the HUD values and the danger frame change (R14)."""
+        cv = self.canvas
+        if self.state != self.PLAYING and not self._screen_shown and (self.state == self.INTRO
+                                                                      or self._motion_done()):
+            self._show_screen()   # R8: the screens wait until the last step has been seen
+        if not self._screen_shown:
+            self._draw_actors()
         self._draw_hud()
-        if self.motion is None:  # the screens wait until the last slide has been seen
-            if self.state == self.INTRO:
-                self._draw_intro()
-            elif self.state == self.CAUGHT:
-                self._draw_caught()
-            elif self.state == self.OVER:
-                self._draw_ending()
-        self._restack()
+        t = self.ms
+        flicker = 0.75 + 0.25 * math.sin(t / 70.0) * math.sin(t / 23.0)
+        self._config(cv, "flame", fill=shade("#ff9f1a", 0.7 + 0.3 * flicker))
+        self._config(cv, "flame_core", fill=mix("#ffe066", "#fff6c8", flicker))
+        glow = 0.55 + 0.45 * abs(math.sin(t / 300.0))
+        self._config(cv, "reaper_eyes", fill=shade(RED, glow))
+        lift = hover(t) * 4.6  # the reaper on the title screen floats too
+        cv.move("title_reaper", 0, lift - self._title_lift)
+        self._title_lift = lift
+        if self._screen_shown and self.ticks % 2 == 0:  # R11: mist drifts on the screens (not during play)
+            cv.move("screen_mist", 1, 0)
+        playing = self.state == self.PLAYING
+        distance = self.game.reaper_distance() if playing else 99
+        period = heartbeat_period_ms(distance)
+        phase = (t % period) / period
+        size = HEART_SIZES[0] if phase < 0.12 or 0.22 < phase < 0.3 else HEART_SIZES[1]
+        self._config(self.hud, "heart", font=(FONT, size, "bold"))
+        danger = playing and distance <= 3 and (t // 250) % 2 == 0
+        colour = RED if danger else (BLOOD if playing and distance <= 3 else BLACK)
+        if self.border.cget("bg") != colour:  # R14: a frame colour, not canvas items: the map is not repainted
+            self.border.configure(bg=colour)
+        self._config(cv, "blink", state="normal" if (t // 600) % 2 == 0 else "hidden")
 
-    def _restack(self):
-        for tag in ("mist", "danger", "hud", "overlay"):
-            self.canvas.tag_raise(tag)
+    def close(self) -> None:
+        """Stop the animation timer and close the window."""
+        try:
+            if self._after is not None:
+                self.root.after_cancel(self._after)
+            self.root.destroy()
+        except tk.TclError:
+            pass  # already closed
 
+    def _config(self, cv, tag, **options):
+        """itemconfigure, but only when something changed: every change repaints the items (R14)."""
+        items = cv.find_withtag(tag)
+        if not items:
+            return
+        key = (str(cv), tag)
+        if self._configured.get(key) != (items, options):
+            cv.itemconfigure(tag, **options)
+            self._configured[key] = (items, options)
+
+    # --- the graveyard: drawn once (R6, R12, R14) ---
     def _xy(self, pos):
-        """Top-left pixel of a maze tile inside the camera view."""
-        return (pos[1] - self.origin[1]) * TILE, (pos[0] - self.origin[0]) * TILE
+        """Top-left of a graveyard tile, in tile-art units (scaled to TILE once everything is drawn)."""
+        return pos[1] * ART, pos[0] * ART
+
+    def _path_like(self, pos) -> bool:
+        """R12: gravel under a tile: the path itself, or a hurdle lying across it."""
+        maze = self.game.maze
+        if maze.on_path(pos):
+            return True
+        if maze.hazard(pos) or maze.low_hurdle(pos):
+            r, c = pos
+            return ((maze.on_path((r, c - 1)) and maze.on_path((r, c + 1)))
+                    or (maze.on_path((r - 1, c)) and maze.on_path((r + 1, c))))
+        return False
 
     def _draw_graveyard(self):
-        """R6: grass everywhere, then whatever stands or lies on each tile (all moonlit since R9)."""
+        """R6/R12: grass or gravel on every tile, then whatever stands or lies on it; all moonlit (R9)."""
         maze = self.game.maze
-        tops, lefts = [self.origin[0]], [self.origin[1]]
-        if self.motion is not None:  # also build the tiles the camera will scroll onto
-            end = camera_at(maze, self.motion.player_to)
-            tops.append(end[0])
-            lefts.append(end[1])
-        r0, r1 = max(0, math.floor(min(tops))), min(maze.height, math.ceil(max(tops)) + VIEW_ROWS)
-        c0, c1 = max(0, math.floor(min(lefts))), min(maze.width, math.ceil(max(lefts)) + VIEW_COLS)
-        for r in range(r0, r1):
-            for c in range(c0, c1):
+        light = MOONLIGHT
+        self._warmth = 0.0
+        for r in range(maze.height):
+            for c in range(maze.width):
                 pos = (r, c)
-                light = light_level(self.game, pos)
-                self._warmth = torch_glow(self.game.player, pos)
                 x0, y0 = self._xy(pos)
-                self._draw_grass(x0, y0, light, r, c)
+                if self._path_like(pos):
+                    self._draw_path(x0, y0, light, r, c)
+                else:
+                    self._draw_grass(x0, y0, light, r, c)
                 obstacle = maze.obstacle(pos)
                 hazard = maze.hazard(pos)
                 if pos in maze.signs:
@@ -490,24 +566,41 @@ class GameWindow:
                     self._draw_coffin(x0, y0, light)
                 elif pos == maze.exit:
                     self._draw_exit(x0, y0, light)
+        self.canvas.scale("all", 0, 0, TILE / ART, TILE / ART)
+        self._draw_mist()
+        self.canvas.addtag_withtag("world", "all")
 
     def _lit(self, colour, light):
-        """R9: colour of a thing on the tile being drawn: moon-cool far away, torch-warm close by."""
+        """R9: colour of a thing on a tile: moonlit."""
         return lit(colour, light, self._warmth)
 
     def _draw_grass(self, x0, y0, light, r, c):
         cv = self.canvas
         variation = 0.88 + 0.12 * ((r * 31 + c * 17) % 3) / 2
-        cv.create_rectangle(x0, y0, x0 + TILE, y0 + TILE, fill=self._lit(GRASS, light * variation),
+        cv.create_rectangle(x0, y0, x0 + ART, y0 + ART, fill=self._lit(GRASS, light * variation),
                             outline=self._lit(GRASS_DARK, light), tags=("grass", "floor"))
         if (r * 13 + c * 7) % 4 == 0:  # a darker patch here and there
             ox, oy = (r * 11 + c * 5) % 20, (r * 3 + c * 13) % 22
             cv.create_oval(x0 + ox + 4, y0 + oy + 6, x0 + ox + 26, y0 + oy + 20,
                            fill=self._lit(GRASS_DARK, light), outline="", tags="grass")
-        if (r + c) % 2 == 0:  # a tuft on every other tile (each line item costs paint time on every frame)
+        if (r + c) % 2 == 0:  # a tuft on every other tile
             gx, gy = 12 + (r * 5 + c * 11) % 24, 18 + (r * 7 + c * 3) % 24
             cv.create_line(x0 + gx - 3, y0 + gy - 6, x0 + gx, y0 + gy, x0 + gx + 3, y0 + gy - 7,
                            fill=self._lit(mix(GRASS_BLADE, GRASS, 0.45), light), tags="grass")
+
+    def _draw_path(self, x0, y0, light, r, c):
+        """R12: a pale gravel path with a few pebbles, so the way through reads at a glance."""
+        cv = self.canvas
+        variation = 0.92 + 0.08 * ((r * 7 + c * 13) % 3) / 2
+        cv.create_rectangle(x0, y0, x0 + ART, y0 + ART, fill=self._lit(GRAVEL, light * variation),
+                            outline=self._lit(mix(GRAVEL, GRAVEL_DARK, 0.4), light), tags=("path", "floor"))
+        for k in range(3):
+            px = 5 + (r * 11 + c * 7 + k * 13) % (ART - 10)
+            py = 5 + (r * 5 + c * 17 + k * 11) % (ART - 10)
+            colour = GRAVEL_LIGHT if k % 2 else GRAVEL_DARK
+            cv.create_oval(x0 + px, y0 + py, x0 + px + 3, y0 + py + 2, fill=self._lit(colour, light),
+                           outline="", tags="path")
+
 
     def _draw_fence(self, x0, y0, light):
         """Iron railings: two rails and four bars with spear tips, with a moonlit edge."""
@@ -516,11 +609,11 @@ class GameWindow:
         shine = self._lit("#5a5a70", light)
         tags = ("fence", "obstacle")
         for y in (y0 + 18, y0 + 40):
-            cv.create_line(x0, y, x0 + TILE, y, fill=iron, width=3, tags=tags)
+            cv.create_line(x0, y, x0 + ART, y, fill=iron, width=3, tags=tags)
         tips = []
         for i in range(4):
             x = x0 + 6.5 + i * 13
-            cv.create_line(x, y0 + 12, x, y0 + TILE - 4, fill=iron, width=3, tags=tags)
+            cv.create_line(x, y0 + 12, x, y0 + ART - 4, fill=iron, width=3, tags=tags)
             tips += [x - 4, y0 + 13, x, y0 + 4, x + 4, y0 + 13]
         cv.create_polygon(*tips, fill=iron, outline=shine, tags=tags)
 
@@ -529,15 +622,15 @@ class GameWindow:
         cv = self.canvas
         tags = ("grave", "obstacle")
         stone, edge = self._lit(STONE, light), self._lit(STONE_DARK, light)
-        cx = x0 + TILE / 2
-        cv.create_oval(x0 + 6, y0 + TILE - 14, x0 + TILE - 6, y0 + TILE - 1, fill=self._lit(DIRT, light),
+        cx = x0 + ART / 2
+        cv.create_oval(x0 + 6, y0 + ART - 14, x0 + ART - 6, y0 + ART - 1, fill=self._lit(DIRT, light),
                        outline="", tags=tags)
         half = (12, 14, 11)[style]
-        cv.create_rectangle(cx - half, y0 + 18, cx + half, y0 + TILE - 8, fill=stone, outline=edge, tags=tags)
+        cv.create_rectangle(cx - half, y0 + 18, cx + half, y0 + ART - 8, fill=stone, outline=edge, tags=tags)
         cv.create_arc(cx - half, y0 + 6, cx + half, y0 + 30, start=0, extent=180, fill=stone, outline=edge,
                       style="chord", tags=tags)
         cv.create_rectangle(cx - half + 1, y0 + 17, cx + half - 1, y0 + 20, fill=stone, outline="", tags=tags)
-        cv.create_rectangle(cx + half - 5, y0 + 18, cx + half, y0 + TILE - 8, fill=edge, outline="", tags=tags)
+        cv.create_rectangle(cx + half - 5, y0 + 18, cx + half, y0 + ART - 8, fill=edge, outline="", tags=tags)
         cv.create_arc(cx - half + 3, y0 + 8, cx + half - 6, y0 + 26, start=100, extent=70, style="arc",
                       outline=self._lit(STONE_LIGHT, light), width=2, tags=tags)
         cv.create_line(cx, y0 + 13, cx, y0 + 27, fill=edge, width=3, tags=tags)
@@ -546,7 +639,7 @@ class GameWindow:
         if style != 1:  # a crack
             cv.create_line(cx - half + 2, y0 + 24, cx - half + 6, y0 + 29, cx - half + 4, y0 + 34, fill=edge,
                            tags=tags)
-        cv.create_oval(cx - half - 1, y0 + TILE - 13, cx - half + 8, y0 + TILE - 7, fill=self._lit(MOSS, light),
+        cv.create_oval(cx - half - 1, y0 + ART - 13, cx - half + 8, y0 + ART - 7, fill=self._lit(MOSS, light),
                        outline="", tags=tags)
 
     def _draw_tree(self, x0, y0, light, flip):
@@ -555,12 +648,12 @@ class GameWindow:
         tags = ("tree", "obstacle")
         bark, dark = self._lit(BARK, light), self._lit(BARK_DARK, light)
         s = -1 if flip else 1
-        cx = x0 + TILE / 2
-        cv.create_oval(cx - 12, y0 + TILE - 7, cx + 12, y0 + TILE - 1, fill=self._lit(GRASS_DARK, light),
+        cx = x0 + ART / 2
+        cv.create_oval(cx - 12, y0 + ART - 7, cx + 12, y0 + ART - 1, fill=self._lit(GRASS_DARK, light),
                        outline="", tags=tags)
-        cv.create_polygon(cx - 7, y0 + TILE - 3, cx - 3, y0 + 30, cx - 2, y0 + 18, cx + 3, y0 + 18,
-                          cx + 3, y0 + 30, cx + 8, y0 + TILE - 3, fill=bark, outline="", tags=tags)
-        cv.create_polygon(cx + 1, y0 + 20, cx + 3, y0 + 30, cx + 8, y0 + TILE - 3, cx + 2, y0 + TILE - 3,
+        cv.create_polygon(cx - 7, y0 + ART - 3, cx - 3, y0 + 30, cx - 2, y0 + 18, cx + 3, y0 + 18,
+                          cx + 3, y0 + 30, cx + 8, y0 + ART - 3, fill=bark, outline="", tags=tags)
+        cv.create_polygon(cx + 1, y0 + 20, cx + 3, y0 + 30, cx + 8, y0 + ART - 3, cx + 2, y0 + ART - 3,
                           fill=dark, outline="", tags=tags)
         for (ax, ay, bx, by, w) in ((0, 24, -16, 8, 3), (0, 20, 15, 4, 3), (-9, 14, -14, 2, 2),
                                     (8, 10, 18, 12, 2), (0, 18, 2, 2, 2), (-16, 8, -21, 10, 1),
@@ -573,25 +666,25 @@ class GameWindow:
         cv = self.canvas
         glow = RED if kind == WARNING else GREEN
         tags = ("sign", f"sign_{kind}", "obstacle")
-        cx = x0 + TILE / 2
-        cv.create_rectangle(cx - 3, y0 + 24, cx + 3, y0 + TILE - 2, fill=self._lit(BARK, light),
+        cx = x0 + ART / 2
+        cv.create_rectangle(cx - 3, y0 + 24, cx + 3, y0 + ART - 2, fill=self._lit(BARK, light),
                             outline="", tags=tags)
-        cv.create_rectangle(x0 + 2, y0 + 3, x0 + TILE - 2, y0 + 32, fill="", outline=shade(glow, 0.6), width=2,
+        cv.create_rectangle(x0 + 2, y0 + 3, x0 + ART - 2, y0 + 32, fill="", outline=shade(glow, 0.6), width=2,
                             tags=tags)  # the glow around the plaque
-        cv.create_rectangle(x0 + 4, y0 + 5, x0 + TILE - 4, y0 + 30, fill=self._lit(PLANK, light),
+        cv.create_rectangle(x0 + 4, y0 + 5, x0 + ART - 4, y0 + 30, fill=self._lit(PLANK, light),
                             outline=glow, width=3, tags=tags)
-        cv.create_text(cx, y0 + 18, text="!", fill=shade(glow, 0.85), font=(FONT, 16, "bold"), tags=tags)
+        cv.create_text(cx, y0 + 18, text="!", fill=shade(glow, 0.85), font=(FONT, 14, "bold"), tags=tags)
 
     def _draw_open_grave(self, x0, y0, light):
         """R7: a freshly dug pit with the earth heaped behind it."""
         cv = self.canvas
         tags = ("hazard", "open_grave")
-        cv.create_oval(x0 + 6, y0 + 2, x0 + TILE - 6, y0 + 20, fill=self._lit(DIRT, light),
+        cv.create_oval(x0 + 6, y0 + 2, x0 + ART - 6, y0 + 20, fill=self._lit(DIRT, light),
                        outline=self._lit(DIRT_DARK, light), tags=tags)
-        cv.create_rectangle(x0 + 11, y0 + 13, x0 + TILE - 11, y0 + TILE - 4, fill=self._lit(DIRT_DARK, light),
+        cv.create_rectangle(x0 + 11, y0 + 13, x0 + ART - 11, y0 + ART - 4, fill=self._lit(DIRT_DARK, light),
                             outline=self._lit(DIRT, light), width=2, tags=tags)
-        cv.create_rectangle(x0 + 15, y0 + 17, x0 + TILE - 15, y0 + TILE - 8, fill=PIT, outline="", tags=tags)
-        cv.create_line(x0 + TILE - 9, y0 + 4, x0 + TILE - 14, y0 + 22, fill=self._lit(BARK, light), width=2,
+        cv.create_rectangle(x0 + 15, y0 + 17, x0 + ART - 15, y0 + ART - 8, fill=PIT, outline="", tags=tags)
+        cv.create_line(x0 + ART - 9, y0 + 4, x0 + ART - 14, y0 + 22, fill=self._lit(BARK, light), width=2,
                        tags=tags)  # a spade left in the heap
 
     def _draw_thorns(self, x0, y0, light):
@@ -615,7 +708,7 @@ class GameWindow:
         cv = self.canvas
         tags = ("low_hurdle", "fallen_headstone")
         stone, edge = self._lit(STONE, light), self._lit(STONE_DARK, light)
-        cv.create_oval(x0 + 4, y0 + 30, x0 + TILE - 4, y0 + 46, fill=self._lit(DIRT_DARK, light), outline="",
+        cv.create_oval(x0 + 4, y0 + 30, x0 + ART - 4, y0 + 46, fill=self._lit(DIRT_DARK, light), outline="",
                        tags=tags)
         cv.create_polygon(x0 + 6, y0 + 38, x0 + 10, y0 + 24, x0 + 40, y0 + 20, x0 + 47, y0 + 30, x0 + 44, y0 + 40,
                           fill=edge, outline="", tags=tags)  # the side of the slab
@@ -629,8 +722,8 @@ class GameWindow:
         cv = self.canvas
         tags = ("low_hurdle", "coffin")
         wood, dark = self._lit(COFFIN, light), self._lit(COFFIN_DARK, light)
-        cx = x0 + TILE / 2
-        outline = (cx - 9, y0 + 3, cx + 9, y0 + 3, cx + 15, y0 + 15, cx + 10, y0 + TILE - 3, cx - 10, y0 + TILE - 3,
+        cx = x0 + ART / 2
+        outline = (cx - 9, y0 + 3, cx + 9, y0 + 3, cx + 15, y0 + 15, cx + 10, y0 + ART - 3, cx - 10, y0 + ART - 3,
                    cx - 15, y0 + 15)
         cv.create_polygon(*[v + (3 if i % 2 else 2) for i, v in enumerate(outline)], fill=BLACK,
                           outline="", tags=tags)  # shadow
@@ -641,155 +734,165 @@ class GameWindow:
     def _draw_exit(self, x0, y0, light):
         """The way out: an iron cemetery gate in a green glow."""
         cv = self.canvas
-        k = SCALE
-        cx = x0 + TILE / 2
+        k = ART_SCALE
+        cx = x0 + ART / 2
         iron = self._lit(IRON, light)
-        cv.create_oval(x0 + 1, y0 + 1, x0 + TILE - 1, y0 + TILE - 1, fill=self._lit("#1e6b3a", light),
+        cv.create_oval(x0 + 1, y0 + 1, x0 + ART - 1, y0 + ART - 1, fill=self._lit("#1e6b3a", light),
                        outline=GREEN, width=2, tags="exit")
         for side in (-1, 1):  # stone posts
-            cv.create_rectangle(cx + side * 14 * k - 3, y0 + 8, cx + side * 14 * k + 3, y0 + TILE - 3,
+            cv.create_rectangle(cx + side * 14 * k - 3, y0 + 8, cx + side * 14 * k + 3, y0 + ART - 3,
                                 fill=self._lit(STONE, light), outline="", tags="exit")
         cv.create_arc(cx - 11 * k, y0 + 6 * k, cx + 11 * k, y0 + 22 * k, start=0, extent=180, style="arc",
                       outline=iron, width=2, tags="exit")
         for i in range(5):
             x = cx - 10 * k + i * 5 * k
-            cv.create_line(x, y0 + 13 * k, x, y0 + TILE - 4, fill=iron, width=2, tags="exit")
+            cv.create_line(x, y0 + 13 * k, x, y0 + ART - 4, fill=iron, width=2, tags="exit")
         cv.create_text(cx, y0 + 26 * k, text="EXIT", fill="#b8ffcf", font=(FONT, 8, "bold"), tags="exit")
 
-    # --- things redrawn every frame (R8, R11) ---
     def _draw_mist(self):
-        """R11: pale wisps of mist drifting across the graveyard (thin curls, so the ground stays visible)."""
+        """R11: pale wisps of mist lying over the graveyard. R14: they stay still during play, because
+        moving them would repaint most of the graveyard every frame."""
         cv = self.canvas
-        cv.delete("mist")
-        for i, (x, y, _) in enumerate(self.mist):
-            x -= 110  # wisps enter from the left edge and wrap round
-            for j, (dy, length) in enumerate(((0, 200), (9, 130))):
+        for i in range(7):
+            x = (i * 389) % self.width
+            y = TILE * (1.5 + (i * 5) % 12)
+            for j, (dy, length) in enumerate(((0, 170), (8, 110))):
                 pts = []
                 for k in range(6):
                     px = x - length / 2 + k * length / 5
-                    pts += [px, y + dy + 5 * math.sin(k * 1.6 + i + j)]
-                cv.create_line(*pts, fill=mix(MIST, GRASS, 0.25 + 0.2 * j), width=2, smooth=True,
+                    pts += [px, y + dy + 4 * math.sin(k * 1.6 + i + j)]
+                cv.create_line(*pts, fill=mix(MIST, GRASS, 0.3 + 0.2 * j), width=2, smooth=True,
                                capstyle="round", tags="mist")
-        for layer in ("danger", "hud", "overlay"):  # new mist goes just under the first layer above it
-            if cv.find_withtag(layer):
-                cv.tag_lower("mist", layer)
-                break
 
+    # --- the figures: redrawn every frame (R8, R11, R14) ---
     def _draw_actors(self):
-        """The reaper's aura and both figures at their shown (maybe mid-slide) positions."""
+        """The torch glow, the reaper's aura and both figures at their shown (maybe mid-step) positions.
+
+        R14: building the ~100 figure items is the costliest part of a frame, so their shapes (walk pose,
+        fluttering hem, hover) are rebuilt only every POSE_EVERY frames (and every frame of a jump); in
+        between, the figures already drawn are just moved to where they now are, so the motion stays smooth."""
         cv = self.canvas
         player, reaper, lift, swing, lean = self._shown()
-        cv.delete("actor")
-        t = self.ticks * TICK_MS
-        top, left = self.origin
 
         def centre(pos):
-            return (pos[1] - left) * TILE + TILE / 2, (pos[0] - top) * TILE + TILE / 2
+            return pos[1] * TILE + TILE / 2, pos[0] * TILE + TILE / 2
 
         px, py = centre(player)
-        figures = [(player[0], self._draw_player_at, (px, py, lift, swing))]
-        if in_view(self.origin, reaper):  # R9: no fog; the reaper is seen wherever it is on screen
-            rx, ry = centre(reaper)
-            period = heartbeat_period_ms(self.game.reaper_distance())
-            pulse = 0.5 + 0.5 * math.sin(2 * math.pi * (t % period) / period)
-            for k, colour in ((1.0, BLOOD), (0.7, RED)):  # R11: rings of red light pulse on the ground
-                ar = TILE * k * (0.5 + 0.15 * pulse)
-                cv.create_oval(rx - ar, ry + 14 - ar * 0.35, rx + ar, ry + 14 + ar * 0.35, fill="", outline=colour,
-                               width=2, tags=("actor", "aura"))
-            figures.append((reaper[0], self._draw_reaper_at, (rx, ry, t, lean)))
+        rx, ry = centre(reaper)
+        pose = (self.face, lift > 0)
+        drawn = self._drawn
+        if (drawn is not None and drawn[2] == pose and not lift and cv.find_withtag("actor")
+                and self.ticks % self.POSE_EVERY):
+            cv.move("player_group", px - drawn[0][0], py - drawn[0][1])
+            cv.move("reaper_group", rx - drawn[1][0], ry - drawn[1][1])
+            self._drawn = ((px, py), (rx, ry), pose)
+            return
+        self._drawn = ((px, py), (rx, ry), pose)
+        cv.delete("actor")
+        t = self.ms
+
+        for k, colour in ((1.25, shade(TORCH_TINT, 0.55)), (0.8, TORCH_TINT)):  # R9: warm torchlight rings
+            gr = TILE * k * (0.95 + 0.05 * math.sin(t / 90.0))
+            cv.create_oval(px - gr, py + 10 - gr * 0.4, px + gr, py + 10 + gr * 0.4, fill="", outline=colour,
+                           width=2, tags=("actor", "torch_glow", "player_group"))
+        period = heartbeat_period_ms(self.game.reaper_distance())
+        pulse = 0.5 + 0.5 * math.sin(2 * math.pi * (t % period) / period)
+        for k, colour in ((1.0, BLOOD), (0.7, RED)):  # R11: rings of red light pulse on the ground
+            ar = TILE * k * (0.5 + 0.15 * pulse)
+            cv.create_oval(rx - ar, ry + 11 - ar * 0.35, rx + ar, ry + 11 + ar * 0.35, fill="", outline=colour,
+                           width=2, tags=("actor", "aura", "reaper_group"))
+        figures = [(player[0], self._draw_player_at, (px, py, lift, swing)),
+                   (reaper[0], self._draw_reaper_at, (rx, ry, t, lean))]
         for _, painter, args in sorted(figures, key=lambda f: f[0]):  # the lower one is drawn in front
             painter(*args)
-        if cv.find_withtag("mist"):  # keep the figures under the mist without raising the mist:
-            cv.tag_lower("actor", "mist")  # raising a layer repaints all of it (R8: keep frames cheap)
+        cv.tag_lower("actor", "mist")  # under the mist; lowering the few figure items is cheap (R14)
 
     def _draw_player_at(self, x, y, lift, swing):
         cv = self.canvas
         shadow = 12 * SCALE * (1 - 0.4 * lift / JUMP_LIFT)
         cv.create_oval(x - shadow, y + 15 * SCALE, x + shadow, y + 20 * SCALE, fill="#0a0c08", outline="",
-                       tags=("actor", "player_shadow"))
-        bob = 0.0 if lift or swing else 0.6 * math.sin(self.ticks * TICK_MS / 500.0)  # breathing
-        draw_player(cv, x, y, SCALE, tag=("player", "actor"), swing=swing, face=self.face,
-                    lift=lift + bob)
+                       tags=("actor", "player_shadow", "player_group"))
+        bob = 0.0 if lift or swing else 0.6 * math.sin(self.ms / 500.0)  # breathing
+        draw_player(cv, x, y, SCALE, tag=("player", "actor", "player_group"), swing=swing, face=self.face, lift=lift + bob)
 
     def _draw_reaper_at(self, x, y, t, lean):
-        draw_reaper(self.canvas, x, y, SCALE, tag=("reaper", "actor"), t=t, lean=lean)
+        draw_reaper(self.canvas, x, y, SCALE, tag=("reaper", "actor", "reaper_group"), t=t, lean=lean)
 
-    def _scroll_world(self):
-        """R8: move the background with the camera instead of rebuilding it."""
-        player, _, _, _, _ = self._shown()
-        self.origin = camera_at(self.game.maze, player)
-        dy = (self.world_origin[0] - self.origin[0]) * TILE
-        dx = (self.world_origin[1] - self.origin[1]) * TILE
-        if dx or dy:
-            self.canvas.move("world", dx, dy)
-        self.world_origin = self.origin
-
-    def _draw_danger_border(self):
-        if self.state == self.PLAYING and self.game.reaper_distance() <= 3:
-            cv = self.canvas
-            cv.create_rectangle(3, 3, self.width - 3, self.map_height - 3, outline=RED, width=6, tags="danger")
-            cv.create_rectangle(9, 9, self.width - 9, self.map_height - 9, outline=BLOOD, width=5,
-                                tags="danger")  # R11: the edges glow red
-
+    # --- the status panel: its own canvas (R1, R5, R14) ---
     def _draw_hud(self):
-        cv, game = self.canvas, self.game
-        top = self.map_height
-        cv.create_rectangle(0, top, self.width, top + HUD_HEIGHT, fill=HUD_BG, outline=HUD_EDGE, tags="hud")
-        cv.create_line(0, top + 1, self.width, top + 1, fill="#6b4a8a", width=2, tags="hud")
-        cv.create_rectangle(6, top + 8, self.width - 6, top + HUD_HEIGHT - 6, outline=HUD_EDGE, tags="hud")
-        if self.state != self.PLAYING:
+        """Rebuilt only when what it shows changes; the time and the status line are just updated."""
+        hud, game = self.hud, self.game
+        playing = self.state == self.PLAYING and not self._screen_shown
+        signs = tuple(s.text for s in game.signs_here()) if playing else ()
+        key = (self.state, playing, game.lives, self.message, signs)
+        if key != self._hud_key:
+            self._hud_key = key
+            self._build_hud(playing)
+        if playing:
+            dist = game.reaper_distance()
+            self._config(hud, "hud_turn", text=f"Time {game.run_ms / 1000:.1f} s")
+            self._config(hud, "hud_status", text=reaper_line(dist, color=False), fill=danger_colour(dist))
+
+    def _build_hud(self, playing):
+        hud, game = self.hud, self.game
+        hud.delete("all")
+        w = self.width + 2 * BORDER
+        hud.create_line(0, 1, w, 1, fill="#6b4a8a", width=2, tags="hud")
+        hud.create_rectangle(5, 6, w - 6, HUD_HEIGHT - 5, outline=HUD_EDGE, tags="hud")
+        hud.create_text(w - 16, 22, anchor="e", text=CONTROLS, fill="#7c7c94", font=(FONT, 10), tags="hud")
+        if not playing:
             return
-        dist = game.reaper_distance()
-        self._draw_hearts(30, top + 45, HEART_GAP, HEART_SIZES[1], "heart", "heart_lost", "hud", anchor="w")
-        text_x = 30 + HEART_GAP * MAX_LIVES
-        cv.create_text(text_x, top + 28, anchor="w", text=f"Turn {game.turn}", fill="#d0d0e0",
-                       font=(FONT, 14, "bold"), tags=("hud", "hud_turn"))
-        cv.create_text(text_x, top + 60, anchor="w", text=reaper_line(dist, color=False),
-                       fill=danger_colour(dist), font=(FONT, 14, "bold"), tags=("hud", "hud_status"))
-        y = top + 100
+        self._draw_hearts(hud, 24, 30, HEART_GAP, HEART_SIZES[1], "heart", "heart_lost", "hud", anchor="w")
+        text_x = 24 + HEART_GAP * MAX_LIVES
+        hud.create_text(text_x, 19, anchor="w", text="", fill="#d0d0e0", font=(FONT, 13, "bold"),
+                        tags=("hud", "hud_turn"))
+        hud.create_text(text_x, 42, anchor="w", text="", fill=GREY, font=(FONT, 13, "bold"),
+                        tags=("hud", "hud_status"))
+        if self.message:  # bump and jump messages, right under the controls line
+            hud.create_text(w - 16, 46, anchor="e", text=self.message, fill=GREY, font=(FONT, 12, "italic"),
+                            tags=("hud", "hud_message"))
+        y = 70
         for sign in game.signs_here():
             colour = RED if sign.kind == WARNING else GREEN
             icon = "⚠" if sign.kind == WARNING else "✔"
-            item = cv.create_text(self.width / 2, y, text=f'{icon}  Painted on a signpost: "{sign.text}"',
-                                  fill=colour, font=(FONT, 18, "bold"), tags=("hud", "sign_banner"))
-            size = 18
+            item = hud.create_text(w / 2, y, text=f'{icon}  Painted on a signpost: "{sign.text}"',
+                                   fill=colour, font=(FONT, 16, "bold"), tags=("hud", "sign_banner"))
+            size = 16
             while size > 10:  # shrink long signs until they fit the window
-                x0, _, x1, _ = cv.bbox(item)
-                if x1 - x0 <= self.width - 20:
+                x0, _, x1, _ = hud.bbox(item)
+                if x1 - x0 <= w - 20:
                     break
                 size -= 1
-                cv.itemconfigure(item, font=(FONT, size, "bold"))
-            y += 30
-        if self.message:
-            cv.create_text(self.width / 2, top + 100, text=self.message, fill=GREY,
-                           font=(FONT, 12, "italic"), tags=("hud", "hud_message"))
-        cv.create_text(self.width - 16, top + HUD_HEIGHT - 18, anchor="e", text=CONTROLS, fill="#7c7c94",
-                       font=(FONT, 10), tags="hud")
+                hud.itemconfigure(item, font=(FONT, size, "bold"))
+            return
+        hud.create_text(w / 2, y, text="Follow the gravel path to the gate. Don't stop.",
+                        fill="#6c6c84", font=(FONT, 11, "italic"), tags=("hud", "hud_hint"))
 
-    def _draw_hearts(self, x, y, gap, size, full_tag, lost_tag, layer, anchor="center"):
+    def _draw_hearts(self, cv, x, y, gap, size, full_tag, lost_tag, layer, anchor="center"):
         """R5: one red heart per life left, then grey empty hearts for the lives lost."""
         for i in range(MAX_LIVES):
             alive = i < self.game.lives
-            self.canvas.create_text(x + i * gap, y, anchor=anchor, text="♥" if alive else "♡",
-                                    fill=RED if alive else HEART_LOST, font=(FONT, size, "bold"),
-                                    tags=(layer, full_tag if alive else lost_tag))
+            cv.create_text(x + i * gap, y, anchor=anchor, text="♥" if alive else "♡",
+                           fill=RED if alive else HEART_LOST, font=(FONT, size, "bold"),
+                           tags=(layer, full_tag if alive else lost_tag))
 
     def _draw_big_hearts(self, y):
         gap = 90
-        self._draw_hearts(self.width / 2 - gap, y, gap, 44, "big_heart", "big_heart_lost", "overlay")
+        self._draw_hearts(self.canvas, self.width / 2 - gap, y, gap, 40, "big_heart", "big_heart_lost", "overlay")
 
+    # --- the screens: drawn over the graveyard (R1, R3, R4, R11) ---
     def _shade_screen(self, moon: str = "#e8e2c8"):
         """R11: a night backdrop for the title and ending screens: sky, a big moon behind bare branches,
-        gravestones in low mist."""
+        gravestones in drifting mist."""
         cv = self.canvas
-        h = self.map_height + HUD_HEIGHT
+        h = self.map_height
         w = self.width
         for i, colour in enumerate(("#07050c", "#0b0814", "#100b1c", "#160f24")):  # sky, darker at the top
             cv.create_rectangle(0, i * h / 6, w, h, fill=colour, outline="", tags="overlay")
-        mx, my = w - 120, 110
-        cv.create_oval(mx - 95, my - 95, mx + 95, my + 95, fill=shade(moon, 0.22), outline="",
+        mx, my = w - 130, 105
+        cv.create_oval(mx - 90, my - 90, mx + 90, my + 90, fill=shade(moon, 0.22), outline="",
                        tags="overlay")  # halo
-        cv.create_oval(mx - 70, my - 70, mx + 70, my + 70, fill=moon, outline="", tags="overlay")
+        cv.create_oval(mx - 66, my - 66, mx + 66, my + 66, fill=moon, outline="", tags="overlay")
         for (ox, oy, rr) in ((-25, -20, 14), (20, 15, 10), (-10, 30, 7)):  # craters
             cv.create_oval(mx + ox - rr, my + oy - rr, mx + ox + rr, my + oy + rr, fill=shade(moon, 0.86),
                            outline="", tags="overlay")
@@ -798,18 +901,19 @@ class GameWindow:
         for (ax, ay, bx, by, wd) in ((-32, 200, -120, 90, 6), (-120, 90, -170, 70, 3), (-90, 120, -95, 40, 3),
                                      (-28, 150, -60, 20, 4), (-60, 20, -40, -10, 2), (-150, 75, -200, 95, 2)):
             cv.create_line(w + ax, ay, w + bx, by, fill=tree, width=wd, capstyle="round", tags="overlay")
-        cv.create_rectangle(0, h - 120, w, h, fill="#141019", outline="", tags="overlay")
+        cv.create_rectangle(0, h - 95, w, h, fill="#141019", outline="", tags="overlay")
         for x in range(40, int(w), 150):  # gravestones
-            cv.create_rectangle(x, h - 150, x + 34, h - 112, fill="#2b2833", outline="#3d3946", tags="overlay")
-            cv.create_arc(x, h - 168, x + 34, h - 134, start=0, extent=180, fill="#2b2833",
+            cv.create_rectangle(x, h - 125, x + 34, h - 87, fill="#2b2833", outline="#3d3946", tags="overlay")
+            cv.create_arc(x, h - 143, x + 34, h - 109, start=0, extent=180, fill="#2b2833",
                           outline="#3d3946", tags="overlay")
-            cv.create_text(x + 17, h - 135, text="RIP", fill="#4a4656", font=(FONT, 8, "bold"), tags="overlay")
-        for row in range(3):  # wisps of low mist over the graves
-            y = h - 150 + row * 16
+            cv.create_text(x + 17, h - 110, text="RIP", fill="#4a4656", font=(FONT, 8, "bold"), tags="overlay")
+        for row in range(self.SCREEN_MIST):  # R11: wisps of low mist drift over the graves
+            y = h - 128 + row * 14
             pts = []
-            for k in range(13):
-                pts += [k * w / 12, y + 6 * math.sin(k * 1.3 + row * 2)]
-            cv.create_line(*pts, fill=shade(MIST, 0.75 - 0.15 * row), width=2, smooth=True, tags="overlay")
+            for k in range(26):
+                pts += [-w + k * w / 12, y + 6 * math.sin(k * 1.3 + row * 2)]
+            cv.create_line(*pts, fill=shade(MIST, 0.75 - 0.12 * row), width=2, smooth=True,
+                           tags=("overlay", "mist", "screen_mist"))
 
     def _title(self, y, text, colour, size):
         """R11: a big title with a dark, blood-red drop shadow."""
@@ -818,23 +922,27 @@ class GameWindow:
                        tags="overlay")
         return cv.create_text(self.width / 2, y, text=text, fill=colour, font=(TITLE_FONT, size), tags="overlay")
 
+    def _prompt(self, text):
+        self.canvas.create_text(self.width / 2, self.map_height - 40, text=text, fill="#ffe066",
+                                font=(FONT, 18, "bold"), tags=("overlay", "blink"))
+
     def _draw_intro(self):
         cv = self.canvas
         mid = self.width / 2
         self._shade_screen()
         self._title_lift = 0.0
-        draw_reaper(cv, mid - 270, 380, 4.6, tag=("overlay", "title_reaper"), t=0)
-        draw_player(cv, mid + 260, 400, 4, tag="overlay")
-        title = self._title(80, "ESCAPE THE GRIM REAPER", RED, 44)
+        draw_reaper(cv, mid - 360, 330, 4.2, tag=("overlay", "title_reaper"), t=0)
+        draw_player(cv, mid + 330, 350, 3.6, tag="overlay")
+        title = self._title(62, "ESCAPE THE GRIM REAPER", RED, 44)
         cv.addtag_withtag("title", title)
-        cv.create_text(mid, 260, text="You wake among the graves at midnight.\n"
-                                      "Something breathes behind you.\n\n"
-                                      "Read the signposts.\nMind the open graves and thorns.\n"
-                                      "Press ↑ to leap coffins and open graves.\n"
-                                      "Find the EXIT gate. Don't look back.",
+        cv.create_text(mid, 235, text="You wake among the graves at midnight.\n"
+                                      "Something breathes behind you. It will not wait.\n\n"
+                                      "Hold an arrow key to run along the gravel path.\n"
+                                      "Press ↑ to leap coffins, open graves and thorns.\n"
+                                      "Read the signposts. Find the EXIT gate.\n"
+                                      "Don't stop. Don't look back.",
                        fill="#e0e0ea", font=(FONT, 15), justify="center", tags="overlay")
-        cv.create_text(mid, self.map_height + 70, text="Press any key to begin", fill="#ffe066",
-                       font=(FONT, 18, "bold"), tags=("overlay", "blink"))
+        self._prompt("Press any key to begin")
 
     def _draw_caught(self):
         """R4 / R7: a life is lost to the reaper (CAUGHT!) or a hazard (HURT!); wait for R."""
@@ -843,92 +951,36 @@ class GameWindow:
         self._shade_screen("#a8432f")
         by_reaper = game.hurt_by == "reaper"
         if by_reaper:
-            draw_reaper(cv, mid, 440, 4, tag="overlay", t=self.ticks * TICK_MS)
+            draw_reaper(cv, mid, 400, 3.0, tag="overlay", t=self.ms)
         else:
-            draw_player(cv, mid, 410, 5, tag="overlay")
-        caught = self._title(75, "CAUGHT!" if by_reaper else "HURT!", ORANGE, 54)
+            draw_player(cv, mid, 350, 4.4, tag="overlay")
+        caught = self._title(62, "CAUGHT!" if by_reaper else "HURT!", ORANGE, 50)
         cv.addtag_withtag("caught_title", caught)
         left = f"{game.lives} {'life' if game.lives == 1 else 'lives'} left"
-        cv.create_text(mid, 145, text=f"{LIFE_LOST[game.hurt_by or 'reaper']} ({left})",
+        cv.create_text(mid, 125, text=f"{LIFE_LOST[game.hurt_by or 'reaper']} ({left})",
                        fill="#e0e0ea", font=(FONT, 16), tags="overlay")
-        self._draw_big_hearts(205)
-        cv.create_text(mid, self.map_height + 70, text="Press R to resume    Esc to quit",
-                       fill="#ffe066", font=(FONT, 18, "bold"), tags=("overlay", "blink"))
+        self._draw_big_hearts(180)
+        self._prompt("Press R to resume    Esc to quit")
 
     def _draw_ending(self):
         cv, game = self.canvas, self.game
         mid = self.width / 2
         self._shade_screen("#c0392b" if game.status is Status.LOST else "#e8e2c8")
         if game.status is Status.WON:
-            draw_player(cv, mid, 360, 5, tag="overlay")
+            draw_player(cv, mid, 330, 4.4, tag="overlay")
             title, colour = "YOU ESCAPED!", GREEN
-            sub = f"You burst into the night air after {game.turn} turns."
+            sub = f"You burst into the night air after {game.run_ms / 1000:.1f} seconds."
         elif game.status is Status.LOST:
-            draw_reaper(cv, mid, 440, 4, tag="overlay", t=self.ticks * TICK_MS)
-            self._draw_big_hearts(205)
+            draw_reaper(cv, mid, 400, 3.0, tag="overlay", t=self.ms)
+            self._draw_big_hearts(180)
             title, colour = "GAME OVER", RED
             sub = GAME_OVER[game.hurt_by or "reaper"]
         else:
             title, colour, sub = "YOU GAVE UP", GREY, "The Reaper is patient."
-        ending = self._title(75, title, colour, 54)
+        ending = self._title(62, title, colour, 50)
         cv.addtag_withtag("ending_title", ending)
-        cv.create_text(mid, 145, text=sub, fill="#e0e0ea", font=(FONT, 16), tags="overlay")
-        cv.create_text(mid, self.map_height + 70, text="Press R to play again    Esc to quit",
-                       fill="#ffe066", font=(FONT, 18, "bold"), tags=("overlay", "blink"))
-
-    def close(self) -> None:
-        """Stop the animation timer and close the window."""
-        try:
-            self.root.after_cancel(self._after)
-            self.root.destroy()
-        except tk.TclError:
-            pass  # already closed
-
-    # --- animation ---
-    def _config(self, tag, **options):
-        """itemconfigure, but only when something changed: every change repaints the items (R8: cheap frames)."""
-        items = self.canvas.find_withtag(tag)
-        if not items:
-            return
-        cache = self.__dict__.setdefault("_configured", {})
-        if cache.get(tag) != (items, options):
-            self.canvas.itemconfigure(tag, **options)
-            cache[tag] = (items, options)
-
-    def _tick(self):
-        self.ticks += 1
-        t = self.ticks * TICK_MS
-        cv = self.canvas
-        if self.motion is not None:  # R8: advance the slide
-            self.motion.frame += 1
-            if self.motion.frame >= self.motion.frames:
-                self.motion = None
-                self.redraw()  # rebuilds the background for the new tile and shows any screen
-            else:
-                self._scroll_world()
-        if self.state != self.INTRO and not cv.find_withtag("overlay"):
-            self._draw_actors()
-        if self.ticks % 4 == 0:  # R11: the mist drifts; moving it repaints the whole view, so not every frame
-            self.mist = [((x + 4 * v) % (self.width + 220), y, v) for x, y, v in self.mist]
-            self._draw_mist()
-        flicker = 0.75 + 0.25 * math.sin(t / 70.0) * math.sin(t / 23.0)
-        self._config("flame", fill=shade("#ff9f1a", 0.7 + 0.3 * flicker))
-        self._config("flame_core", fill=mix("#ffe066", "#fff6c8", flicker))
-        glow = 0.55 + 0.45 * abs(math.sin(t / 300.0))
-        self._config("reaper_eyes", fill=shade(RED, glow))
-        lift = hover(t) * 4.6  # the reaper on the title screen floats too
-        cv.move("title_reaper", 0, lift - self._title_lift)
-        self._title_lift = lift
-        period = heartbeat_period_ms(self.game.reaper_distance())
-        phase = (t % period) / period
-        size = HEART_SIZES[0] if phase < 0.12 or 0.22 < phase < 0.3 else HEART_SIZES[1]
-        self._config("heart", font=(FONT, size, "bold"))
-        self._config("danger", state="normal" if (t // 300) % 2 == 0 else "hidden")
-        self._config("blink", state="normal" if (t // 600) % 2 == 0 else "hidden")
-        # Keep a steady frame rate: the time spent drawing comes out of the next wait, not on top of it.
-        now = time.perf_counter()
-        self._next_frame = max(getattr(self, "_next_frame", now) + TICK_MS / 1000, now + 0.005)
-        self._after = self.root.after(round((self._next_frame - now) * 1000), self._tick)
+        cv.create_text(mid, 125, text=sub, fill="#e0e0ea", font=(FONT, 16), tags="overlay")
+        self._prompt("Press R to play again    Esc to quit")
 
 
 def run() -> int:

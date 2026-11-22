@@ -321,13 +321,19 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 * **Remembered jumps:** see R10.
 * **Cheap frames.** Each canvas repaint must stay small:
   * The graveyard is drawn **once per window** and never moves (no camera; decision 0006).
-  * Each frame redraws only the figures and the glows around them.
-  * The HUD is on a separate canvas, so the beating hearts never repaint the graveyard.
+  * Each frame changes only the figures and the glows around them. Their shapes (walk pose, fluttering hem, hover) are rebuilt every 3rd frame (`POSE_EVERY`) and every frame of a jump; in between, the figures are only moved, so their position is still smooth.
+  * The HUD is on a separate canvas, so the beating hearts never repaint the graveyard. It is rebuilt only when what it shows changes; the time and the status line are just updated.
   * The red danger frame is the colour of a frame around the canvas, not canvas items.
-  * The mist lies still during play (R11).
+  * The mist lies still during play (R11). Under a screen (CAUGHT!, GAME OVER, ...) the graveyard is hidden, so the screen's drifting mist doesn't repaint it.
+  * Key presses don't draw. Windows repeats a held key about 30 times a second, and drawing for each repeat doubled the work. The next frame shows the step.
+* **Real time, steadily.** The window asks for a frame every 20 ms (`FRAME_MS`). It advances the game clock by the real time that has passed, at most 100 ms at once (`MAX_FRAME_MS`). So the figures always move at the right speed, a slow frame never makes them jump, and the rules never depend on the frame rate.
+* **Measured on the development machine** (a laptop whose CPU was held at 1.1 GHz during the measurements):
+  * a full repaint of the graveyard takes 200–800 ms, which is why the round-4 camera stuttered;
+  * an empty Tk canvas gets a frame every 31 ms (Windows timers);
+  * the game's own work is about 9 ms per frame;
+  * in play, frames come every 75–90 ms (11–13 fps), almost all of it Tk painting the figures over the graveyard. A clean run still takes the expected 15.3 s.
 
-  Measured: about 10 ms per frame, against 200–800 ms for a full repaint.
-* **Real time, steadily.** The window runs a frame every 20 ms. It advances the game clock by the real time that has passed, at most 100 ms at once, so a stalled frame never makes figures jump.
+  On a faster or unthrottled machine the frame rate rises. Making it much smoother on this machine would need far simpler figures. That was not done, to keep the detailed figures R8 and R11 asked for. It is an open question for the product owner.
 
 ## R15 — No sound
 
