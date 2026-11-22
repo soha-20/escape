@@ -27,5 +27,5 @@ Nowadays escape games are not prevailing so much and most of the users do not ha
 ## Round 5 Requirements
 - R12: the game has no flow, it is still random. The game should have structure not just a bunch of graves blocking the way.
 - R13: the grim reaper should chase, no concept of standing at this block away. Like the normal chase game, the player being chased.
-- R15: Remove the sound as it feels a bit weird. 
-- R14: The game should go with smooth flow, not random stops and glitch.
+- R14: Remove the sound as it feels a bit weird. 
+- R15: The game should go with smooth flow, not random stops and glitch.
