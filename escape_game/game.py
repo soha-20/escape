@@ -240,6 +240,8 @@ class Game:
                 self._jump_until = None
                 self.events.append(outcome)
                 return
+        if not self.held:  # a remembered jump ran out and no key is held: nothing to do
+            return
         for direction in reversed(self.held):
             dr, dc = DIRECTIONS[direction]
             target = (self.player[0] + dr, self.player[1] + dc)

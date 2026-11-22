@@ -320,3 +320,17 @@ def test_R13_reaching_the_exit_wins_and_records_the_time():
     assert game.run_ms == PLAYER_STEP_MS * 2
     game.update(1000)
     assert game.run_ms == PLAYER_STEP_MS * 2
+
+
+def test_R10_a_remembered_jump_that_runs_out_with_no_key_held_does_nothing():
+    """R10/R15: an Up remembered while the player is busy, with no key held, runs out quietly when the
+    player is ready again (it used to crash the window with an IndexError)."""
+    game = realtime()
+    for _ in range(3):
+        game.press("right")
+        game.release("right")
+        game.update(PLAYER_STEP_MS)
+    game.press_jump()               # leaps the open grave: busy for JUMP_MS
+    game.press_jump()               # pressed again mid-jump: remembered for JUMP_BUFFER_MS
+    game.update(JUMP_BUFFER_MS + 1)  # it runs out before the player is ready, and no key is held
+    assert game.player == (1, 10) and game.lives == 3  # no crash, no stray move
