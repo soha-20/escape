@@ -1,4 +1,4 @@
-"""Tests for the real-time chase of the game window (R13, R14) and the remembered jump (R10).
+"""Tests for the real-time chase of the game window (R13, R15) and the remembered jump (R10).
 
 The rules for time live in game.py on a clock the tests advance by hand (Game.update(ms)), so a whole
 chase runs in milliseconds and every result is exact.
@@ -160,17 +160,17 @@ def test_R13_turn_based_games_are_unchanged():
     assert game.reaper == (1, 2)
 
 
-# --- R14: smooth flow: hold to run, cornering, no stalls ------------------------------------
+# --- R15: smooth flow: hold to run, cornering, no stalls ------------------------------------
 
-def test_R14_a_press_moves_at_once():
-    """R14: a key pressed while the player is ready moves them straight away, with no wait for a frame."""
+def test_R15_a_press_moves_at_once():
+    """R15: a key pressed while the player is ready moves them straight away, with no wait for a frame."""
     game = realtime()
     game.press("right")
     assert game.player == (1, 6) and game.player_moved_at == game.clock
 
 
-def test_R14_holding_a_key_runs_at_a_steady_pace():
-    """R14: while a key is held the player moves a tile every PLAYER_STEP_MS, with no gap between steps."""
+def test_R15_holding_a_key_runs_at_a_steady_pace():
+    """R15: while a key is held the player moves a tile every PLAYER_STEP_MS, with no gap between steps."""
     game = realtime(LANE)
     game.press("right")
     starts = [game.player_moved_at]
@@ -181,8 +181,8 @@ def test_R14_holding_a_key_runs_at_a_steady_pace():
     assert [b - a for a, b in zip(starts, starts[1:])] == [PLAYER_STEP_MS] * 4
 
 
-def test_R14_releasing_the_key_stops_at_the_next_tile():
-    """R14: letting go finishes the step under way and then stops."""
+def test_R15_releasing_the_key_stops_at_the_next_tile():
+    """R15: letting go finishes the step under way and then stops."""
     game = realtime(LANE)
     game.press("right")
     game.update(PLAYER_STEP_MS / 2)
@@ -191,8 +191,8 @@ def test_R14_releasing_the_key_stops_at_the_next_tile():
     assert game.player == (1, 5)
 
 
-def test_R14_presses_during_a_step_wait_for_it_to_finish():
-    """R14: the player can't outrun their own legs: a tap mid-step acts when the step ends."""
+def test_R15_presses_during_a_step_wait_for_it_to_finish():
+    """R15: the player can't outrun their own legs: a tap mid-step acts when the step ends."""
     game = realtime(LANE)
     game.press("right")
     game.release("right")
@@ -201,8 +201,8 @@ def test_R14_presses_during_a_step_wait_for_it_to_finish():
     assert game.player == (1, 5)  # still on the first step
 
 
-def test_R14_motion_records_where_and_when_each_figure_set_off():
-    """R14: the window draws each figure part of the way from where it was, so Game records the motion."""
+def test_R15_motion_records_where_and_when_each_figure_set_off():
+    """R15: the window draws each figure part of the way from where it was, so Game records the motion."""
     game = realtime(LANE)
     game.press("right")
     assert (game.player_from, game.player, game.player_move_ms) == ((1, 4), (1, 5), PLAYER_STEP_MS)
@@ -211,8 +211,8 @@ def test_R14_motion_records_where_and_when_each_figure_set_off():
     assert game.reaper_move_ms == REAPER_STEP_MS
 
 
-def test_R14_cornering_turns_as_soon_as_the_way_opens():
-    """R14: holding Right and pressing Down early keeps running right until Down is open, then turns."""
+def test_R15_cornering_turns_as_soon_as_the_way_opens():
+    """R15: holding Right and pressing Down early keeps running right until Down is open, then turns."""
     game = realtime(LANE)
     game.press("right")
     game.press("down")  # pressed early: below is a row of gravestones
@@ -222,8 +222,8 @@ def test_R14_cornering_turns_as_soon_as_the_way_opens():
     assert game.facing == "down"
 
 
-def test_R14_releasing_the_newer_key_falls_back_to_the_older_one():
-    """R14: with Right still held, letting go of Down carries on running right."""
+def test_R15_releasing_the_newer_key_falls_back_to_the_older_one():
+    """R15: with Right still held, letting go of Down carries on running right."""
     game = realtime(LANE)
     game.press("right")
     game.press("down")
@@ -232,8 +232,8 @@ def test_R14_releasing_the_newer_key_falls_back_to_the_older_one():
     assert game.player == (1, 7)
 
 
-def test_R14_a_bump_stops_the_run_but_a_new_key_acts_at_once():
-    """R14: running into an obstacle stops and says so once; another key then moves without delay."""
+def test_R15_a_bump_stops_the_run_but_a_new_key_acts_at_once():
+    """R15: running into an obstacle stops and says so once; another key then moves without delay."""
     game = realtime("#########\n#R  P+  #\n#     E #\n#########")
     game.press("right")
     assert game.events[-1] is Outcome.WALL and game.bumped == "gravestone"
@@ -244,8 +244,8 @@ def test_R14_a_bump_stops_the_run_but_a_new_key_acts_at_once():
     assert game.player == (2, 4)
 
 
-def test_R14_events_tell_the_window_what_each_action_did():
-    """R14: moves, bumps and failed jumps are queued as Outcome events for the window's messages."""
+def test_R15_events_tell_the_window_what_each_action_did():
+    """R15: moves, bumps and failed jumps are queued as Outcome events for the window's messages."""
     game = realtime()
     game.press_jump()  # nothing to jump at the start
     game.press("up")    # the fence
@@ -273,7 +273,7 @@ def test_R10_a_jump_covers_two_tiles_in_JUMP_MS():
 
 
 def test_R10_a_jump_pressed_a_moment_early_is_remembered():
-    """R10/R14: Up pressed a tile before the hurdle, while running, leaps it as soon as it is in front."""
+    """R10/R15: Up pressed a tile before the hurdle, while running, leaps it as soon as it is in front."""
     game = realtime()
     game.press("right")
     game.update(PLAYER_STEP_MS * 2)  # on the way from (1,7) to (1,8), running
@@ -303,7 +303,7 @@ def test_R10_up_in_front_of_a_hurdle_after_a_bump_jumps_at_once():
 
 
 def test_R10_running_into_a_hazard_without_jumping_costs_a_life():
-    """R7/R14: holding a key straight into an open grave loses a life, as stepping on it always did."""
+    """R7/R15: holding a key straight into an open grave loses a life, as stepping on it always did."""
     game = realtime()
     game.press("right")
     game.update(PLAYER_STEP_MS * 3)

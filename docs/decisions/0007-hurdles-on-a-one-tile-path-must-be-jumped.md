@@ -25,4 +25,4 @@ accepting that **there is no longer a "safe route on foot": several round-3/4 te
 ## Consequences
 
 - `tests/test_maze.py` checks the rhythm: every hurdle is jumped, 3–5 tiles apart, never at a bend, every grave stands in a row, and the path forks only at warning signs.
-- In the window the player gets help to hit the jumps: an Up pressed up to 300 ms early is remembered (R10, R14).
+- In the window the player gets help to hit the jumps: an Up pressed up to 300 ms early is remembered (R10, R15).

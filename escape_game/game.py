@@ -3,7 +3,7 @@
 Two ways to play:
 * Turn-based (the --text game, and Game() by default): each move() or jump() is a turn, then the
   Reaper takes one step.
-* Real time (the game window, Game(realtime=True)), R13/R14: the window says which keys are held
+* Real time (the game window, Game(realtime=True)), R13/R15: the window says which keys are held
   (press/release/press_jump) and how much time has passed (update(ms)). The player runs a tile every
   PLAYER_STEP_MS while a key is held; the Reaper steps every REAPER_STEP_MS on its own clock.
   Time is a number the caller advances, so tests can run a whole chase in milliseconds.
@@ -18,11 +18,11 @@ MAX_LIVES = 3  # R4
 KEYS = {"w": "up", "s": "down", "a": "left", "d": "right"}
 JUMP_KEY = "j"  # R10: the --text version's jump (the window uses the Up arrow)
 
-# R13/R14: the pace of the real-time chase, in milliseconds
+# R13/R15: the pace of the real-time chase, in milliseconds
 PLAYER_STEP_MS = 180   # one tile while a key is held
 JUMP_MS = 270          # a jump: two tiles, faster than running
 REAPER_STEP_MS = 200   # the Reaper: a little slower than a runner
-JUMP_BUFFER_MS = 300   # R10/R14: an Up pressed this early is remembered
+JUMP_BUFFER_MS = 300   # R10/R15: an Up pressed this early is remembered
 
 NEVER = float("-inf")
 
@@ -61,7 +61,7 @@ class Game:
         self.facing = "right"             # R10: the way the player last tried to move; jumps go this way
         self.jumped = False               # R10: the last turn was a jump
         self.jump_blocked: str | None = None  # R10: why the last jump failed: "nothing" or what is in the way
-        # --- real time (R13, R14) ---
+        # --- real time (R13, R15) ---
         self.clock = 0.0                  # ms; advanced by update()
         self.run_ms = 0.0                 # time spent running (from the first step), shown in the window
         self.held: list[str] = []         # movement keys held down, oldest first
@@ -124,9 +124,9 @@ class Game:
         self._reset_motion()
         return Outcome.RESUMED
 
-    # --- real-time commands (the window), R13/R14 -------------------------------------------
+    # --- real-time commands (the window), R13/R15 -------------------------------------------
     def press(self, direction: str) -> None:
-        """R14: a movement key went down. The newest held key leads; the player moves at once if ready."""
+        """R15: a movement key went down. The newest held key leads; the player moves at once if ready."""
         if direction in self.held:
             self.held.remove(direction)
         self.held.append(direction)
@@ -134,13 +134,13 @@ class Game:
         self.update(0)
 
     def release(self, direction: str) -> None:
-        """R14: a movement key came up: the player finishes the step under way, then stops (or follows
+        """R15: a movement key came up: the player finishes the step under way, then stops (or follows
         another key still held)."""
         if direction in self.held:
             self.held.remove(direction)
 
     def press_jump(self) -> None:
-        """R10/R14: Up went down: jump now if possible, otherwise remember it for JUMP_BUFFER_MS."""
+        """R10/R15: Up went down: jump now if possible, otherwise remember it for JUMP_BUFFER_MS."""
         self._jump_until = self.clock + JUMP_BUFFER_MS
         self._stalled = False
         self.update(0)
@@ -226,7 +226,7 @@ class Game:
         return self._ready_at if wants_jump or wants_run else float("inf")
 
     def _player_act(self) -> None:
-        """R14: one real-time action: a remembered jump if it can be made, else a step along the newest
+        """R15: one real-time action: a remembered jump if it can be made, else a step along the newest
         held key whose way is open (cornering), else a bump that stops the run."""
         if self._jump_until is not None and self.clock > self._jump_until:
             self._jump_until = None             # R10: remembered too long ago

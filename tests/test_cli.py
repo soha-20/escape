@@ -31,7 +31,7 @@ FIRST_WARNING = (3, 26)  # the tile in front of the "Wanna get stuck?" signpost 
 
 
 def play(keys, *extra_args):
-    """Run the terminal game on scripted keys. R15: the game is silent, so the third value, kept for the
+    """Run the terminal game on scripted keys. R14: the game is silent, so the third value, kept for the
     callers, is the list of terminal bells rung (always empty)."""
     out = io.StringIO()
     code = main(["--text", "--no-color", *extra_args], stdin=io.StringIO(keys), stdout=out)
@@ -48,7 +48,7 @@ def test_R1_game_starts_with_intro_and_maze():
 
 
 def test_R1_full_game_escape_through_the_cli():
-    """R1: typing the right moves escapes the reaper. (Changed by R15: no escape tune any more.)"""
+    """R1: typing the right moves escapes the reaper. (Changed by R14: no escape tune any more.)"""
     code, out, beeps = play(winning_keys())
     assert code == 0
     assert "You escaped the Reaper in 79 turns!" in out
@@ -56,7 +56,7 @@ def test_R1_full_game_escape_through_the_cli():
 
 
 def test_R1_heartbeat_is_no_longer_heard_every_turn():
-    """R1 (changed by R15): there is no heartbeat sound; the status line still tells how close the Reaper is."""
+    """R1 (changed by R14): there is no heartbeat sound; the status line still tells how close the Reaper is."""
     _, out, beeps = play("d\nd\nq\n")
     assert beeps == []
     assert out.count("Something cold breathes down your neck") == 3
@@ -92,7 +92,7 @@ CATCH = "a\na\n"  # two steps back toward the reaper: caught
 
 
 def test_R3_caught_through_the_cli():
-    """R3: being caught on the last life ends the game with GAME OVER. (R15: no caught tone any more.)"""
+    """R3: being caught on the last life ends the game with GAME OVER. (R14: no caught tone any more.)"""
     code, out, beeps = play(CATCH + "r\n" + CATCH + "r\n" + CATCH + "d\n")
     assert code == 0
     assert "GAME OVER" in out
@@ -103,7 +103,7 @@ def test_R3_caught_through_the_cli():
 # --- R4 / R5: lives in the terminal version ---------------------------------
 
 def test_R4_caught_with_lives_left_waits_for_r_then_resumes():
-    """R4: a catch costs a life and r + Enter resumes the chase. (R15: no life-lost tone any more.)"""
+    """R4: a catch costs a life and r + Enter resumes the chase. (R14: no life-lost tone any more.)"""
     code, out, beeps = play(CATCH + "d\nr\nq\n")
     assert code == 0
     assert "You lose a life" in out
@@ -132,7 +132,7 @@ def test_R5_hearts_go_from_three_to_none_in_the_terminal():
 
 
 def test_R1_mute_flag_is_gone_because_there_is_no_sound():
-    """R1 (changed by R15): --mute used to turn sound off; with no sound left, the option is gone."""
+    """R1 (changed by R14): --mute used to turn sound off; with no sound left, the option is gone."""
     with pytest.raises(SystemExit):
         main(["--text", "--mute", "--no-color"], stdin=io.StringIO("d\nq\n"), stdout=io.StringIO())
 
@@ -169,7 +169,7 @@ def test_R6_intro_mentions_the_graveyard():
 
 
 def test_R7_open_grave_costs_a_life_in_the_terminal():
-    """R7: walking into the open grave east of the start costs a life. (R15: silently.)"""
+    """R7: walking into the open grave east of the start costs a life. (R14: silently.)"""
     code, out, beeps = play("d\nd\nd\nd\nr\nq\n")
     assert "You tumble into an open grave! You lose a life." in out
     assert "Lives: ♥ ♥ ♡" in out

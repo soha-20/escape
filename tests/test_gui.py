@@ -1,8 +1,8 @@
 """Tests for the graphical game window: figures, signs, lighting, keys, and (since round 5) real time.
 
-These open real (hidden) tkinter windows. Since R15 the game makes no sound at all.
+These open real (hidden) tkinter windows. Since R14 the game makes no sound at all.
 
-Round 5 (R13, R14) made the window real-time: a key pressed moves the player at once, a held key keeps
+Round 5 (R13, R15) made the window real-time: a key pressed moves the player at once, a held key keeps
 them running, and the Reaper moves on its own clock. The windows here run without their frame timer
 (autorun=False); the tests let time pass with advance(ms). The round-1 to round-4 tests below were
 adapted to that (keys are now tapped: pressed, released, and given the time a step takes) and to the
@@ -39,7 +39,7 @@ def window(tk_root):
 
 
 def canvas_for(win, tag):
-    """The HUD has its own canvas since R14: look there if the graveyard canvas has nothing with the tag."""
+    """The HUD has its own canvas since R15: look there if the graveyard canvas has nothing with the tag."""
     return win.canvas if win.canvas.find_withtag(tag) else win.hud
 
 
@@ -144,7 +144,7 @@ def test_R1_any_key_starts_the_chase(window):
     assert window.state == window.PLAYING
     assert window.game.turn == 0
     assert not window.canvas.find_withtag("overlay")
-    assert not hasattr(window, "sound")  # R15: no heartbeat sound any more
+    assert not hasattr(window, "sound")  # R14: no heartbeat sound any more
 
 
 def test_R1_player_figure_is_drawn_on_the_player_tile(window):
@@ -156,7 +156,7 @@ def test_R1_player_figure_is_drawn_on_the_player_tile(window):
 
 
 def test_R1_reaper_figure_is_drawn_whenever_it_is_in_view(window):
-    """R1 (changed by R9, R14): the reaper (cloak, skull, scythe, eyes) is always drawn: all is in view."""
+    """R1 (changed by R9, R15): the reaper (cloak, skull, scythe, eyes) is always drawn: all is in view."""
     press(window, "space")
     assert window.canvas.find_withtag("reaper")
     assert len(window.canvas.find_withtag("reaper_eyes")) == 2
@@ -166,7 +166,7 @@ def test_R1_reaper_figure_is_drawn_whenever_it_is_in_view(window):
                                                 ("Left", None, (1, 4)), ("a", None, (1, 4)),
                                                 ("Down", (1, 26), (2, 26)), ("s", (1, 26), (2, 26))])
 def test_R1_arrow_keys_and_wasd_move_with_one_keypress(window, key, start, expected):
-    """R1: one keypress = one move, no Enter needed; since R14 the move starts the moment the key goes down.
+    """R1: one keypress = one move, no Enter needed; since R15 the move starts the moment the key goes down.
     (R12: down from the start is a gravestone, so the downward keys are tried at the first bend.)"""
     press(window, "space")
     if start:
@@ -195,18 +195,18 @@ def test_R1_hud_shows_time_and_reaper_distance(window):
 
 
 def test_R1_red_border_warns_when_the_reaper_is_close(window):
-    """R1 (changed by R14): the frame around the graveyard glows red when the reaper is 3 steps or fewer away."""
+    """R1 (changed by R15): the frame around the graveyard glows red when the reaper is 3 steps or fewer away."""
     press(window, "space")
     assert window.border.cget("bg") == "#000000"
     press(window, "Left")  # (1,4): the reaper comes on
     window.advance(REAPER_STEP_MS)
     assert window.game.reaper_distance() <= 3
     assert window.border.cget("bg") in (RED, BLOOD)
-    assert not window.canvas.find_withtag("danger")  # a frame colour, not canvas items (R14)
+    assert not window.canvas.find_withtag("danger")  # a frame colour, not canvas items (R15)
 
 
 def test_R1_escaping_shows_victory_screen(window):
-    """R1: reaching the exit shows YOU ESCAPED! (Changed by R15: no rising tune any more.)"""
+    """R1: reaching the exit shows YOU ESCAPED! (Changed by R14: no rising tune any more.)"""
     press(window, "space", *route_keys(window.game))
     assert window.game.status is Status.WON
     assert texts(window, "ending_title") == ["YOU ESCAPED!"]
@@ -244,7 +244,7 @@ def test_R1_animation_tick_runs(window):
 # --- R1: drawing helpers ------------------------------------------------------
 
 def test_R1_torch_light_is_brightest_next_to_the_player(window):
-    """R1 (changed by R9, R14): the torch glows in warm rings centred on the player; the inner ring is the
+    """R1 (changed by R9, R15): the torch glows in warm rings centred on the player; the inner ring is the
     brightest, and the tiles themselves stay moonlit."""
     press(window, "space")
     rings = sorted(torch_rings(window), key=lambda r: r[0][2] - r[0][0])
@@ -256,7 +256,7 @@ def test_R1_torch_light_is_brightest_next_to_the_player(window):
 
 
 def test_R1_tiles_behind_the_player_stay_moonlit(window):
-    """R1 (changed by R9, R14): the tiles never change as the player moves: they are all equally moonlit."""
+    """R1 (changed by R9, R15): the tiles never change as the player moves: they are all equally moonlit."""
     press(window, "space")
     before = {i: window.canvas.itemcget(i, "fill") for i in window.canvas.find_withtag("floor")}
     press(window, "Right", "Right")
@@ -271,7 +271,7 @@ def test_R1_heart_beats_faster_as_the_reaper_closes_in():
 
 
 def test_R1_the_whole_graveyard_is_in_view_and_fits_the_screen(window):
-    """R1 (changed by R14): instead of a camera following the player, the whole graveyard is shown at once,
+    """R1 (changed by R15): instead of a camera following the player, the whole graveyard is shown at once,
     and the window fits a 1280 x 720 screen."""
     maze = window.game.maze
     size = (int(window.canvas.cget("width")), int(window.canvas.cget("height")))
@@ -314,7 +314,7 @@ def test_R2_signs_are_drawn_as_glowing_signposts(window):
 
 
 def test_R2_exit_door_is_drawn_when_seen(window):
-    """R2: the goal of the graveyard is a visible exit gate (since R14 in view from the start)."""
+    """R2: the goal of the graveyard is a visible exit gate (since R15 in view from the start)."""
     press(window, "space")
     assert "EXIT" in texts(window, "exit")
 
@@ -333,7 +333,7 @@ def test_R2_every_sign_message_fits_inside_the_window(window):
 # --- R3: losing --------------------------------------------------------------
 
 def test_R3_caught_shows_game_over_with_the_reaper(window):
-    """R3: being caught on the last life shows GAME OVER and a big reaper. (R15: silently.)"""
+    """R3: being caught on the last life shows GAME OVER and a big reaper. (R14: silently.)"""
     lose_all_lives(window)
     assert window.game.status is Status.LOST
     assert texts(window, "ending_title") == ["GAME OVER"]
@@ -351,7 +351,7 @@ def test_R3_moves_are_ignored_after_game_over(window):
 # --- R4: three lives; R resumes ------------------------------------------------
 
 def test_R4_catch_with_lives_left_shows_caught_screen(window):
-    """R4: a catch with lives left shows CAUGHT! and explains R. (R15: no life-lost tone any more.)"""
+    """R4: a catch with lives left shows CAUGHT! and explains R. (R14: no life-lost tone any more.)"""
     press(window, "space")
     get_caught(window)
     assert window.game.status is Status.CAUGHT
@@ -451,7 +451,7 @@ def test_R5_hearts_still_beat_with_the_heartbeat(window):
 # --- R6: the game area is a graveyard ------------------------------------------
 
 def test_R6_graveyard_objects_are_drawn_around_the_player(window):
-    """R6: grass, gravestones, the iron fence and dead trees are drawn (since R14: the whole graveyard)."""
+    """R6: grass, gravestones, the iron fence and dead trees are drawn (since R15: the whole graveyard)."""
     press(window, "space")
     for tag in ("grass", "grave", "fence", "tree", "obstacle", "path"):
         assert window.canvas.find_withtag(tag), f"nothing tagged {tag!r} is drawn"
@@ -484,7 +484,7 @@ def test_R7_open_graves_and_thorns_are_drawn_when_in_light(window):
 
 
 def test_R7_stepping_into_an_open_grave_shows_hurt_screen(window):
-    """R7: a hazard costs a life: HURT! names the open grave and shows the player. (R15: silently.)"""
+    """R7: a hazard costs a life: HURT! names the open grave and shows the player. (R14: silently.)"""
     press(window, "space", "Right", "Right", "Right", "Right")
     assert window.state == window.CAUGHT and window.game.hurt_by == "open grave"
     assert texts(window, "caught_title") == ["HURT!"]
@@ -536,7 +536,7 @@ def test_R9_torch_glow_is_strongest_at_the_player_and_fades_out(window):
 
 
 def test_R9_the_whole_view_is_drawn_not_just_near_the_torch(window):
-    """R9 (changed by R14): every tile of the graveyard has ground drawn on it, wherever the player is."""
+    """R9 (changed by R15): every tile of the graveyard has ground drawn on it, wherever the player is."""
     press(window, "space")
     maze = window.game.maze
     assert len(window.canvas.find_withtag("floor")) == maze.width * maze.height
@@ -592,7 +592,7 @@ def test_R10_controls_and_title_screen_mention_the_jump(window):
 
 
 def test_R10_a_jump_pressed_a_moment_early_still_clears_the_grave(window):
-    """R10/R14: running with Right held, Up pressed a tile before the open grave still leaps it."""
+    """R10/R15: running with Right held, Up pressed a tile before the open grave still leaps it."""
     press(window, "space")
     window.on_key("Right")                     # held
     window.advance(PLAYER_STEP_MS * 2)         # on the way to (1,8)
@@ -608,7 +608,7 @@ from escape_game.gui import hover, jump_height, lit, progress, tween, walk_pose 
 
 
 def test_R8_ease_and_tween_slide_smoothly_from_tile_to_tile():
-    """R8 (changed by R14): a step glides at a constant speed (no ease in and out, which stuttered at every
+    """R8 (changed by R15): a step glides at a constant speed (no ease in and out, which stuttered at every
     tile), passing every point in between."""
     assert progress(0, 0, 180) == 0 and progress(90, 0, 180) == 0.5 and progress(400, 0, 180) == 1
     assert progress(5, float("-inf"), 180) == 1  # a figure that hasn't moved stands on its tile
@@ -642,7 +642,7 @@ def test_R8_player_slides_to_the_next_tile_over_several_frames(window):
 
 
 def test_R8_legs_move_while_walking(window):
-    """R8: the legs are drawn in different poses during a step (R14: the pose is redrawn every few frames)."""
+    """R8: the legs are drawn in different poses during a step (R15: the pose is redrawn every few frames)."""
     press(window, "space")
     window.on_key("Right")
     poses = set()
@@ -679,7 +679,7 @@ def test_R8_the_reaper_glides_and_hovers(window):
 
 
 def test_R8_the_camera_scrolls_smoothly(window):
-    """R8 (changed by R14): the camera no longer scrolls at all; the graveyard stays put while the
+    """R8 (changed by R15): the camera no longer scrolls at all; the graveyard stays put while the
     player runs, so there is nothing to jerk."""
     press(window, "space")
     world = {i: window.canvas.coords(i) for i in window.canvas.find_withtag("world")[::37]}
@@ -690,7 +690,7 @@ def test_R8_the_camera_scrolls_smoothly(window):
 
 
 def test_R8_a_key_during_a_slide_finishes_it_and_takes_the_next_move(window):
-    """R8 (changed by R14): a key held during a step takes the next step the moment this one ends,
+    """R8 (changed by R15): a key held during a step takes the next step the moment this one ends,
     without a pause (a step is no longer cut short; the player keeps a steady pace)."""
     press(window, "space")
     window.on_key("Right")
@@ -771,7 +771,7 @@ def test_R11_the_aura_pulses_faster_when_the_reaper_is_close():
 
 
 def test_R11_mist_drifts_across_the_graveyard(window):
-    """R11 (changed by R14): wisps of mist lie over the graveyard, still during play (moving them would
+    """R11 (changed by R15): wisps of mist lie over the graveyard, still during play (moving them would
     repaint the whole graveyard), and drift on the title and end screens."""
     title_mist = [window.canvas.coords(i)[0] for i in window.canvas.find_withtag("screen_mist")]
     for _ in range(8):
@@ -834,10 +834,10 @@ def test_R13_the_title_screen_does_not_run_the_clock(window):
     assert window.game.clock == 0 and window.game.reaper == window.game.maze.reaper_start
 
 
-# --- R14: smooth flow -------------------------------------------------------------------
+# --- R15: smooth flow -------------------------------------------------------------------
 
-def test_R14_holding_a_key_runs_without_stopping(window):
-    """R14: with Right held, the figure moves forward on every frame by about the same amount."""
+def test_R15_holding_a_key_runs_without_stopping(window):
+    """R15: with Right held, the figure moves forward on every frame by about the same amount."""
     press(window, "space")
     window.on_key("Right")
     xs = []
@@ -850,8 +850,8 @@ def test_R14_holding_a_key_runs_without_stopping(window):
     assert window.game.player == (1, 8)  # on the way there; the open grave at (1,9) is next
 
 
-def test_R14_releasing_the_key_stops_at_the_next_tile(window):
-    """R14: letting go stops the run cleanly on a tile."""
+def test_R15_releasing_the_key_stops_at_the_next_tile(window):
+    """R15: letting go stops the run cleanly on a tile."""
     press(window, "space")
     window.on_key("Right")
     window.advance(PLAYER_STEP_MS / 2)
@@ -861,8 +861,8 @@ def test_R14_releasing_the_key_stops_at_the_next_tile(window):
     assert window.game.player == (1, 6) and tile_of(window)[1] == pytest.approx(6, abs=0.15)
 
 
-def test_R14_the_graveyard_is_drawn_once(window):
-    """R14: no frame, step or screen redraws the graveyard: its items stay the same items."""
+def test_R15_the_graveyard_is_drawn_once(window):
+    """R15: no frame, step or screen redraws the graveyard: its items stay the same items."""
     world = set(window.canvas.find_withtag("world"))
     press(window, "space", "Right", "Right")
     get_caught(window)
@@ -870,8 +870,8 @@ def test_R14_the_graveyard_is_drawn_once(window):
     assert set(window.canvas.find_withtag("world")) == world
 
 
-def test_R14_each_frame_changes_only_the_figures(window):
-    """R14: a frame redraws or moves the figure items and touches nothing else on the graveyard canvas."""
+def test_R15_each_frame_changes_only_the_figures(window):
+    """R15: a frame redraws or moves the figure items and touches nothing else on the graveyard canvas."""
     press(window, "space")
     window.on_key("Right")
     others = {i: window.canvas.coords(i) for i in window.canvas.find_all()
@@ -883,8 +883,8 @@ def test_R14_each_frame_changes_only_the_figures(window):
         assert now == others
 
 
-def test_R14_the_hud_is_on_its_own_canvas(window):
-    """R14: the beating hearts and the clock live on a separate canvas, so they never repaint the graveyard."""
+def test_R15_the_hud_is_on_its_own_canvas(window):
+    """R15: the beating hearts and the clock live on a separate canvas, so they never repaint the graveyard."""
     press(window, "space")
     assert window.hud is not window.canvas
     assert window.hud.find_withtag("heart") and not window.canvas.find_withtag("heart")
@@ -892,8 +892,8 @@ def test_R14_the_hud_is_on_its_own_canvas(window):
     assert any("Hold" in t for t in texts(window, "hud")) and "Hold" in CONTROLS
 
 
-def test_R14_key_repeat_draws_no_extra_frames(window):
-    """R14: Windows repeats a held key ~30 times a second; the repeats must not redraw the figures."""
+def test_R15_key_repeat_draws_no_extra_frames(window):
+    """R15: Windows repeats a held key ~30 times a second; the repeats must not redraw the figures."""
     press(window, "space")
     window.on_key("Right")
     window.advance(0)
@@ -903,8 +903,8 @@ def test_R14_key_repeat_draws_no_extra_frames(window):
     assert {i: window.canvas.coords(i) for i in window.canvas.find_withtag("actor")} == actors
 
 
-def test_R14_a_stalled_frame_moves_the_game_on_by_at_most_MAX_FRAME_MS(window):
-    """R14: if the computer stalls for a second, the figures don't leap: one frame is at most 100 ms."""
+def test_R15_a_stalled_frame_moves_the_game_on_by_at_most_MAX_FRAME_MS(window):
+    """R15: if the computer stalls for a second, the figures don't leap: one frame is at most 100 ms."""
     press(window, "space", "Right")
     clock = window.game.clock
     window._last = time.perf_counter() - 1.0
@@ -913,8 +913,8 @@ def test_R14_a_stalled_frame_moves_the_game_on_by_at_most_MAX_FRAME_MS(window):
     assert window.game.clock - clock <= MAX_FRAME_MS
 
 
-def test_R14_losing_the_keyboard_lets_go_of_held_keys(window):
-    """R14: if the window loses focus while a key is held, the player stops instead of running on."""
+def test_R15_losing_the_keyboard_lets_go_of_held_keys(window):
+    """R15: if the window loses focus while a key is held, the player stops instead of running on."""
     press(window, "space")
     window.on_key("Right")
     window._release_all()

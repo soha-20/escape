@@ -313,7 +313,7 @@ def test_R12_hurdles_lie_on_the_path_at_a_steady_rhythm(maze):
 
 
 def test_R12_every_jump_is_taken_running_straight(maze):
-    """R12/R14: no hurdle lies at a bend, so the player reaches each one running in the jump's direction."""
+    """R12/R15: no hurdle lies at a bend, so the player reaches each one running in the jump's direction."""
     route = safe_route(maze)
     for i in range(1, len(route) - 1):
         a, b = route[i], route[i + 1]

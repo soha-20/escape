@@ -1,9 +1,9 @@
 """Graphical game window (tkinter): animated figures, a moonlit graveyard, glowing signs.
 
-Since round 5 the window plays in real time (R13, R14): keys held down are passed to the rules
+Since round 5 the window plays in real time (R13, R15): keys held down are passed to the rules
 (Game.press/release/press_jump) and every frame advances the game clock by the real time that passed.
 
-Smooth frames (R14): on Windows a full repaint of the canvas takes 200-800 ms, so nothing may repaint
+Smooth frames (R15): on Windows a full repaint of the canvas takes 200-800 ms, so nothing may repaint
 it during play. The whole graveyard is drawn once per window and never moves (no camera); each frame
 redraws only the figures and the glows around them; the HUD lives on its own canvas; and the red danger
 border is the colour of a frame around the canvas, not canvas items.
@@ -27,9 +27,9 @@ SCALE = TILE / 40    # figures are designed on a 40-pixel tile
 ART = 52             # the tile art is designed on 52-pixel tiles, then scaled to TILE
 ART_SCALE = ART / 40
 HUD_HEIGHT = 90
-BORDER = 5           # R14: the danger frame around the graveyard
-FRAME_MS = 20        # R14: one animation frame
-MAX_FRAME_MS = 100   # R14: a stalled frame never moves the game on by more than this
+BORDER = 5           # R15: the danger frame around the graveyard
+FRAME_MS = 20        # R15: one animation frame
+MAX_FRAME_MS = 100   # R15: a stalled frame never moves the game on by more than this
 JUMP_LIFT = 24       # R10: how high the player rises, in design pixels (0.6 tile)
 HEART_SIZES = (26, 21)   # HUD heart font size: beat, rest
 HEART_GAP = 36           # pixels between HUD hearts
@@ -131,12 +131,12 @@ def danger_colour(distance: int) -> str:
 
 
 def progress(clock: float, started: float, duration: float) -> float:
-    """R14: how far (0 .. 1) a figure is through a move that started at `started` and lasts `duration`."""
+    """R15: how far (0 .. 1) a figure is through a move that started at `started` and lasts `duration`."""
     return max(0.0, min(1.0, (clock - started) / duration))
 
 
 def tween(a, b, t: float) -> tuple[float, float]:
-    """R8: the point a fraction t of the way from tile a to tile b (R14: at a constant speed)."""
+    """R8: the point a fraction t of the way from tile a to tile b (R15: at a constant speed)."""
     return a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
 
 
@@ -297,7 +297,7 @@ def draw_reaper(cv: tk.Canvas, cx: float, cy: float, s: float = 1.0, tag="reaper
 class GameWindow:
     INTRO, PLAYING, CAUGHT, OVER = "intro", "playing", "caught", "over"
     SCREEN_MIST = 4
-    POSE_EVERY = 3   # R14: rebuild the figures' shapes every 3rd frame; move them in between
+    POSE_EVERY = 3   # R15: rebuild the figures' shapes every 3rd frame; move them in between
 
     def __init__(self, root: tk.Tk, autorun: bool = True):
         """autorun=False leaves the frame timer off: tests then drive time with advance(ms)."""
@@ -309,13 +309,13 @@ class GameWindow:
         root.title("Escape the Grim Reaper")
         root.configure(bg=BLACK)
         root.resizable(False, False)
-        self.border = tk.Frame(root, bg=BLACK, padx=BORDER, pady=BORDER)  # R14: the danger frame
+        self.border = tk.Frame(root, bg=BLACK, padx=BORDER, pady=BORDER)  # R15: the danger frame
         self.border.pack()
         self.canvas = tk.Canvas(self.border, width=self.width, height=self.map_height, bg=BLACK,
                                 highlightthickness=0)
         self.canvas.pack()
         self.hud = tk.Canvas(root, width=self.width + 2 * BORDER, height=HUD_HEIGHT, bg=HUD_BG,
-                             highlightthickness=0)  # R14: its own canvas, so it never repaints the graveyard
+                             highlightthickness=0)  # R15: its own canvas, so it never repaints the graveyard
         self.hud.pack()
         root.bind("<KeyPress>", lambda e: self.on_key(e.keysym))
         root.bind("<KeyRelease>", lambda e: self.on_key_up(e.keysym))
@@ -330,8 +330,8 @@ class GameWindow:
         self._hud_key = None
         self._configured = {}
         self._title_lift = 0.0
-        self._drawn = None            # R14: where the figures were last drawn, and in what pose
-        self._draw_graveyard()        # R14: once per window; it never changes or moves
+        self._drawn = None            # R15: where the figures were last drawn, and in what pose
+        self._draw_graveyard()        # R15: once per window; it never changes or moves
         self.redraw()
         self._after = None
         if autorun:
@@ -339,7 +339,7 @@ class GameWindow:
             self._next_frame = self._last
             self._after = root.after(FRAME_MS, self._tick)
 
-    # --- input (R13, R14) ---
+    # --- input (R13, R15) ---
     def on_key(self, keysym: str) -> None:
         """A key went down (Windows repeats this while it is held)."""
         if keysym == "Escape":
@@ -368,25 +368,25 @@ class GameWindow:
             return
         if keysym in JUMP_KEYS:  # R10
             game.press_jump()
-        elif keysym in KEY_DIRECTIONS:  # R14: held keys run
+        elif keysym in KEY_DIRECTIONS:  # R15: held keys run
             game.press(KEY_DIRECTIONS[keysym])
         else:
             return
-        # R14: no drawing here. Windows repeats a held key ~30 times a second, and drawing a frame
+        # R15: no drawing here. Windows repeats a held key ~30 times a second, and drawing a frame
         # for each repeat doubled the work; the next frame (at most FRAME_MS away) shows the step.
         self._after_rules()
 
     def on_key_up(self, keysym: str) -> None:
-        """R14: a movement key came up: the player stops at the next tile."""
+        """R15: a movement key came up: the player stops at the next tile."""
         if keysym in KEY_DIRECTIONS:
             self.game.release(KEY_DIRECTIONS[keysym])
 
     def _release_all(self) -> None:
-        """R14: if the window loses the keyboard, no key stays 'held' and the player doesn't run off."""
+        """R15: if the window loses the keyboard, no key stays 'held' and the player doesn't run off."""
         for direction in list(self.game.held):
             self.game.release(direction)
 
-    # --- time (R13, R14) ---
+    # --- time (R13, R15) ---
     def advance(self, ms: float) -> None:
         """Let ms milliseconds pass: the rules move on, then one frame is drawn."""
         self.ticks += 1
@@ -428,13 +428,13 @@ class GameWindow:
         return (g.clock >= g.player_moved_at + g.player_move_ms
                 and g.clock >= g.reaper_moved_at + g.reaper_move_ms)
 
-    # --- where the figures are shown (R8, R14) ---
+    # --- where the figures are shown (R8, R15) ---
     def _shown(self):
         """(player tile, reaper tile, lift, swing, reaper lean) as drawn now: part of the way through a step."""
         g = self.game
         pt = progress(g.clock, g.player_moved_at, g.player_move_ms)
         rt = progress(g.clock, g.reaper_moved_at, g.reaper_move_ms)
-        player = tween(g.player_from, g.player, pt)  # R14: a constant speed, so a run never stutters
+        player = tween(g.player_from, g.player, pt)  # R15: a constant speed, so a run never stutters
         reaper = tween(g.reaper_from, g.reaper, rt)
         moving = pt < 1 and g.player_from != g.player
         lift = jump_height(pt) if moving and g.jumped else 0.0
@@ -461,13 +461,13 @@ class GameWindow:
             self._draw_caught()
         elif self.state == self.OVER:
             self._draw_ending()
-        # R14: the graveyard under a screen is hidden, or the drifting mist would repaint all of it
+        # R15: the graveyard under a screen is hidden, or the drifting mist would repaint all of it
         self.canvas.itemconfigure("world", state="hidden")
         self._screen_shown = True
         self._hud_key = None
 
     def _frame(self) -> None:
-        """One frame. During play only the figures, the HUD values and the danger frame change (R14)."""
+        """One frame. During play only the figures, the HUD values and the danger frame change (R15)."""
         cv = self.canvas
         if self.state != self.PLAYING and not self._screen_shown and (self.state == self.INTRO
                                                                       or self._motion_done()):
@@ -494,7 +494,7 @@ class GameWindow:
         self._config(self.hud, "heart", font=(FONT, size, "bold"))
         danger = playing and distance <= 3 and (t // 250) % 2 == 0
         colour = RED if danger else (BLOOD if playing and distance <= 3 else BLACK)
-        if self.border.cget("bg") != colour:  # R14: a frame colour, not canvas items: the map is not repainted
+        if self.border.cget("bg") != colour:  # R15: a frame colour, not canvas items: the map is not repainted
             self.border.configure(bg=colour)
         self._config(cv, "blink", state="normal" if (t // 600) % 2 == 0 else "hidden")
 
@@ -508,7 +508,7 @@ class GameWindow:
             pass  # already closed
 
     def _config(self, cv, tag, **options):
-        """itemconfigure, but only when something changed: every change repaints the items (R14)."""
+        """itemconfigure, but only when something changed: every change repaints the items (R15)."""
         items = cv.find_withtag(tag)
         if not items:
             return
@@ -517,7 +517,7 @@ class GameWindow:
             cv.itemconfigure(tag, **options)
             self._configured[key] = (items, options)
 
-    # --- the graveyard: drawn once (R6, R12, R14) ---
+    # --- the graveyard: drawn once (R6, R12, R15) ---
     def _xy(self, pos):
         """Top-left of a graveyard tile, in tile-art units (scaled to TILE once everything is drawn)."""
         return pos[1] * ART, pos[0] * ART
@@ -750,7 +750,7 @@ class GameWindow:
         cv.create_text(cx, y0 + 26 * k, text="EXIT", fill="#b8ffcf", font=(FONT, 8, "bold"), tags="exit")
 
     def _draw_mist(self):
-        """R11: pale wisps of mist lying over the graveyard. R14: they stay still during play, because
+        """R11: pale wisps of mist lying over the graveyard. R15: they stay still during play, because
         moving them would repaint most of the graveyard every frame."""
         cv = self.canvas
         for i in range(7):
@@ -764,11 +764,11 @@ class GameWindow:
                 cv.create_line(*pts, fill=mix(MIST, GRASS, 0.3 + 0.2 * j), width=2, smooth=True,
                                capstyle="round", tags="mist")
 
-    # --- the figures: redrawn every frame (R8, R11, R14) ---
+    # --- the figures: redrawn every frame (R8, R11, R15) ---
     def _draw_actors(self):
         """The torch glow, the reaper's aura and both figures at their shown (maybe mid-step) positions.
 
-        R14: building the ~100 figure items is the costliest part of a frame, so their shapes (walk pose,
+        R15: building the ~100 figure items is the costliest part of a frame, so their shapes (walk pose,
         fluttering hem, hover) are rebuilt only every POSE_EVERY frames (and every frame of a jump); in
         between, the figures already drawn are just moved to where they now are, so the motion stays smooth."""
         cv = self.canvas
@@ -805,7 +805,7 @@ class GameWindow:
                    (reaper[0], self._draw_reaper_at, (rx, ry, t, lean))]
         for _, painter, args in sorted(figures, key=lambda f: f[0]):  # the lower one is drawn in front
             painter(*args)
-        cv.tag_lower("actor", "mist")  # under the mist; lowering the few figure items is cheap (R14)
+        cv.tag_lower("actor", "mist")  # under the mist; lowering the few figure items is cheap (R15)
 
     def _draw_player_at(self, x, y, lift, swing):
         cv = self.canvas
@@ -818,7 +818,7 @@ class GameWindow:
     def _draw_reaper_at(self, x, y, t, lean):
         draw_reaper(self.canvas, x, y, SCALE, tag=("reaper", "actor", "reaper_group"), t=t, lean=lean)
 
-    # --- the status panel: its own canvas (R1, R5, R14) ---
+    # --- the status panel: its own canvas (R1, R5, R15) ---
     def _draw_hud(self):
         """Rebuilt only when what it shows changes; the time and the status line are just updated."""
         hud, game = self.hud, self.game

@@ -8,12 +8,12 @@ This document describes how the program meets each requirement in `problem.md`.
 |---|---|
 | Language | Python 3 (3.10+), standard library only (tkinter for graphics) |
 | Interface | A **graphical game window** (tkinter) launched from the terminal with drawn figures for the player and the Grim Reaper. A plain terminal version is kept behind `--text`. |
-| Pace (round 5) | **Real-time in the game window** (R13, R14): the Reaper moves on its own clock, and holding a movement key keeps the player running. **`--text` stays turn-based**: there the Reaper moves one step after every player move |
+| Pace (round 5) | **Real-time in the game window** (R13, R15): the Reaper moves on its own clock, and holding a movement key keeps the player running. **`--text` stays turn-based**: there the Reaper moves one step after every player move |
 | Game area | One fixed, hand-designed layout (the game is meant to be short): a maze in rounds 1–2, an open graveyard in rounds 3–4, **a graveyard laid out along a gravel path** since round 5 (R12) |
 | Structure (round 5) | **A clear path through neat rows of graves** (R12): a gravel path winds from the start to the exit gate, with tidy rows of headstones on both sides. Hurdles and hazards lie on the path at planned points, and signposts mark the side paths that lead into dead ends |
 | Chase (round 5) | **Real-time, hold to run** (R13): the Reaper moves whether or not the player does, a little slower than a running player, so a clean run escapes and every hesitation lets it catch up |
-| Sound (round 5) | **Removed completely** (R15): no tones, no heartbeat, no `--mute`. The visual cues (beating hearts, pulsing red aura, red border) stay |
-| IDs (round 5) | The unnumbered round-5 bullet (remove the sound) is **R15** |
+| Sound (round 5) | **Removed completely** (R14): no tones, no heartbeat, no `--mute`. The visual cues (beating hearts, pulsing red aura, red border) stay |
+| IDs (round 5) | The product owner numbered the round-5 bullets in `problem.md`: **R14 = remove the sound**, **R15 = smooth flow**. (A first draft of this round used the opposite numbers; the code, tests and records were renumbered to match.) |
 | Lives (round 2) | **3 lives.** Being caught costs one life; the game is lost when the last one goes |
 | Resume (round 2) | After a catch the game pauses; **R** resumes with player and reaper **both back on their start tiles** |
 | After the last life (round 2) | GAME OVER; **R** starts a fresh game with 3 lives |
@@ -35,7 +35,7 @@ This document describes how the program meets each requirement in `problem.md`.
 
 *Revision (2026-11-19, round 4):* R8 and R11 ask for better, scarier graphics with figures that move; R9 removes the dark screen; R10 adds jumpable hurdles on the Up arrow. This changes R1 (the Up arrow no longer moves north, and the torch-light fog of war is gone from both front ends) and R7 (hazards can be jumped). The earlier tests were adapted, not deleted. (The round-4 spec referred to decision records 0005 and 0006; they were never written, so those numbers are used by round 5.)
 
-*Revision (2026-11-21, round 5):* R12 asks for a structured graveyard instead of scattered graves; R13 asks for a Reaper that really chases; R14 asks for smooth play without stops or glitches; R15 removes the sound. The product owner chose a **real-time chase with hold-to-run** (over a same-speed Reaper, a Reaper that speeds up, or staying turn-based), **a gravel path through neat rows of graves** (over sections with checkpoints, or several levels), **removing sound completely as R15**, and **keeping `--text` turn-based**. This changes:
+*Revision (2026-11-21, round 5):* R12 asks for a structured graveyard instead of scattered graves; R13 asks for a Reaper that really chases; R15 asks for smooth play without stops or glitches; R14 removes the sound. The product owner chose a **real-time chase with hold-to-run** (over a same-speed Reaper, a Reaper that speeds up, or staying turn-based), **a gravel path through neat rows of graves** (over sections with checkpoints, or several levels), **removing sound completely as R14**, and **keeping `--text` turn-based**. This changes:
 * R1: the window game runs in real time; the Reaper no longer waits for the player's move; there is no sound and no `--mute`; the HUD shows time instead of turns.
 * R2: the dead ends are side paths off the gravel path; the safe route now includes jumps.
 * R6: the graveyard is no longer open ground; it is rows of graves along a path.
@@ -115,12 +115,12 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 * **Figures.** Both characters are drawn from shapes, not letters (R8, R11):
   * **Player:** an adventurer in a blue tunic holding a torch whose flame flickers.
   * **Grim Reaper:** a tall, floating, tattered black cloak, a skull in a deep hood with glowing red eyes that pulse, bony fingers and a large scythe.
-* **Controls (window).** *Changed in round 5 (R13, R14):*
-  * `W`/`A`/`S`/`D` and `←` `↓` `→` **move while held**, see R14;
+* **Controls (window).** *Changed in round 5 (R13, R15):*
+  * `W`/`A`/`S`/`D` and `←` `↓` `→` **move while held**, see R15;
   * `↑` **jumps** (R10); `W` moves north;
   * `Esc` closes the game;
   * after a catch, `R` resumes (R4); after the game ends, `R` plays again *(default)*.
-* **Rules in real time (window).** See R13 for the Reaper's clock and R14 for running. Whenever someone arrives on a tile, the game checks in this order:
+* **Rules in real time (window).** See R13 for the Reaper's clock and R15 for running. Whenever someone arrives on a tile, the game checks in this order:
   1. If the player is on the Reaper's tile, they are caught (R3).
   2. If the player is on the exit, the player **wins**. Nothing moves after that.
   3. If the player stepped onto a hazard, they lose a life (R7).
@@ -130,7 +130,7 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
   3. Otherwise the Reaper takes one step along a shortest path to the player and the catch check follows.
   * The Reaper's path is a breadth-first search through every walkable tile, including hazards and low hurdles, which it glides over. Ties are broken in a fixed order, so the game is deterministic.
 * **Moves that don't count.** Moving into a gravestone, fence, tree, signpost or low hurdle doesn't move the player. A message names what is in the way, e.g. "A gravestone blocks your way." In `--text` it uses no turn. In the window the Reaper keeps coming (R13).
-* **Display (window).** *Changed in round 5 (R14):*
+* **Display (window).** *Changed in round 5 (R15):*
   * **The whole graveyard is on screen at once**, at 38 px per tile: 1102 × 532 px, which fits a 1280 × 720 screen. There is no scrolling camera.
   * **Tiles:** see R6, R7, R10 and R12. **Exit:** an iron cemetery gate with a green glow and the label "EXIT".
   * **Status panel (HUD)** below the graveyard, on its own canvas:
@@ -139,7 +139,7 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
     * a status line ("Distant footsteps…" in grey, "Something cold breathes down your neck…" in orange, "RUN! The Reaper is right behind you!" in red);
     * sign texts (R2), bump messages, and the controls.
   * **Danger:** when the Reaper is 3 steps or fewer away, the frame around the graveyard pulses red.
-* **Sound.** *Removed in round 5 (R15).* The game makes no sound.
+* **Sound.** *Removed in round 5 (R14).* The game makes no sound.
 * **Win.** Reaching the exit shows a "YOU ESCAPED!" screen with the time (window) or turn count (`--text`).
 * **Fallback.** If the window can't open (no tkinter, no display), the program says so and starts the terminal version instead.
 * **Terminal version (`--text`).** Turn-based (see the turn order above):
@@ -236,18 +236,18 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 
 *(Window only. The `--text` version keeps its letters.)*
 
-* **Motion.** *Changed in round 5 (R14):* each step **glides at a constant speed** from tile to tile. The old ease-in-ease-out slowed down at every tile, and that made a run stutter. A run of steps therefore looks like one smooth run. The camera no longer moves: the whole graveyard is on screen.
+* **Motion.** *Changed in round 5 (R15):* each step **glides at a constant speed** from tile to tile. The old ease-in-ease-out slowed down at every tile, and that made a run stutter. A run of steps therefore looks like one smooth run. The camera no longer moves: the whole graveyard is on screen.
 * **Walk cycle (player).** While moving, the legs and arms swing (one stride per tile) and the body bobs. The player faces left or right according to the last sideways move and is drawn mirrored when facing left. Standing still, the player breathes (a slight bob) and the torch flame flickers.
 * **The Reaper moves too.** It floats above the ground (a slow up-and-down hover, with a shadow beneath it). Its tattered hem flutters, its cloak leans into the direction it moves, and its scythe sways.
 * **Polish.** Tiles are drawn with light and dark sides (gravestones with an "RIP" inscription and cracks, gnarled trees, shaded iron), and the HUD has a framed panel with a controls line.
-* **Keeping frames cheap (R14).** See R14.
+* **Keeping frames cheap (R15).** See R15.
 * **Testable parts.** Pure helpers (`tween`, `walk_pose`, `jump_height`, `hover`) compute the animation. `Game` records when each figure last started moving (`player_from`, `player_moved_at`, `player_move_ms`, and the same for the Reaper). The window draws each figure at `progress = (clock − moved_at) / move_ms` of the way. Window tests drive the clock by hand (`advance(ms)`) instead of waiting.
 * **Screens wait for the motion.** The CAUGHT!/HURT!/GAME OVER/YOU ESCAPED! screens appear once the last step has been seen on screen (at most one step later).
 
 ## R9 — The whole screen is lit, not just one side
 
-* **Moonlight everywhere.** Every tile is drawn clearly, in a cool, moonlit colour (80 % brightness, `MOONLIGHT`). There is no fog of war in either front end. *Changed in round 5 (R14):* the whole graveyard is on screen, so nothing is ever off to one side.
-* **Torch glow.** *Changed in round 5:* the tiles are drawn once per window (R14), so the torch no longer tints them. Instead, warm rings of torchlight glow on the ground around the player and move with them (tag `torch_glow`).
+* **Moonlight everywhere.** Every tile is drawn clearly, in a cool, moonlit colour (80 % brightness, `MOONLIGHT`). There is no fog of war in either front end. *Changed in round 5 (R15):* the whole graveyard is on screen, so nothing is ever off to one side.
+* **Torch glow.** *Changed in round 5:* the tiles are drawn once per window (R15), so the torch no longer tints them. Instead, warm rings of torchlight glow on the ground around the player and move with them (tag `torch_glow`).
 * **The Reaper and hazards** are always drawn.
 * **Text version:** the whole graveyard map is printed every turn.
 
@@ -261,7 +261,7 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
   * If the tile in front is plain ground (or anything not jumpable), or the landing tile is not safe, nothing happens. The message says why: *"There is nothing here to jump over."* or *"You can't land there: a gravestone is in the way."*
   * Leaping onto or through the Reaper's tile is a catch. Landing on the exit wins.
   * `--text`: a jump takes one turn, then the Reaper takes its one step.
-  * Window *(changed in round 5, R13/R14)*: a jump takes `JUMP_MS` = 270 ms for 2 tiles, which is faster than running (180 ms per tile). If the jump can't be made yet, an `↑` pressed while running is **remembered for 300 ms** (`JUMP_BUFFER_MS`) *(default)*. The player keeps running and leaps as soon as a hurdle is in front, so a jump pressed a moment early still works.
+  * Window *(changed in round 5, R13/R15)*: a jump takes `JUMP_MS` = 270 ms for 2 tiles, which is faster than running (180 ms per tile). If the jump can't be made yet, an `↑` pressed while running is **remembered for 300 ms** (`JUMP_BUFFER_MS`) *(default)*. The player keeps running and leaps as soon as a hurdle is in front, so a jump pressed a moment early still works.
 * **The Reaper glides over low hurdles** (as over hazards, decision 0004). Jumping is how the player gains ground.
 * **Window:** the player rises in an arc (about 0.6 tile high) with a shadow on the ground. A low hurdle is drawn as a cracked headstone lying flat (tags `low_hurdle`, `fallen_headstone`) or a wooden coffin with a cross (tags `low_hurdle`, `coffin`).
 * **Logic:** `Game.jump()`, `Game.facing`, `Game.jumped`, `Outcome.NO_JUMP` with `Game.jump_blocked` (`"nothing"` or what is in the way). `Maze.low_hurdle(pos)`. `Maze.player_route(a, b)` is a shortest way for the player, by walking and jumping.
@@ -275,7 +275,7 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
   * a tattered hem that flutters over puffs of black smoke.
 
   **Rings of red light pulse** on the ground under it, faster as it gets closer to the player.
-* **Atmosphere:** thin **wisps of pale mist** lie over the graveyard. *Changed in round 5 (R14):* during play the mist stays still, because moving it repaints the whole graveyard (about 100 ms a frame, measured). It **drifts on the title and end screens**. Those screens have:
+* **Atmosphere:** thin **wisps of pale mist** lie over the graveyard. *Changed in round 5 (R15):* during play the mist stays still, because moving it repaints the whole graveyard (about 100 ms a frame, measured). It **drifts on the title and end screens**. Those screens have:
   * a big moon (blood red at GAME OVER) behind bare branches;
   * ground mist over the graves;
   * a blood-red title with a dark shadow;
@@ -309,7 +309,15 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 * **Logic, not timers.** The rules for time live in `game.py`, on a clock that the window advances: `Game(realtime=True)` and `Game.update(ms)`. Tests can then run a whole chase in a few milliseconds. Why: `docs/decisions/0005-realtime-chase-on-a-game-clock.md`.
 * `--text` stays turn-based (the product owner's choice): a line-based terminal can't run a clock.
 
-## R14 — Smooth flow, no stops or glitches
+## R14 — No sound
+
+* The game makes **no sound** at all, in either front end: no heartbeat, no tones, no terminal bell (`\a`).
+* `escape_game/sound.py` is deleted. No module imports `winsound`.
+* The `--mute` option is removed *(default)*. There is nothing to mute.
+* The tension cues that used to be heard are now only seen: beating hearts, the Reaper's pulsing aura, the status line, the red danger frame.
+* *Changes R1 and R4:* their sound tests were adapted to check that nothing sounds.
+
+## R15 — Smooth flow, no stops or glitches
 
 * *Problem:* the round-4 window had three causes of stops:
   * each key press was a separate turn;
@@ -334,14 +342,6 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
   * in play, frames come every 75–90 ms (11–13 fps), almost all of it Tk painting the figures over the graveyard. A clean run still takes the expected 15.3 s.
 
   On a faster or unthrottled machine the frame rate rises. Making it much smoother on this machine would need far simpler figures. That was not done, to keep the detailed figures R8 and R11 asked for. It is an open question for the product owner.
-
-## R15 — No sound
-
-* The game makes **no sound** at all, in either front end: no heartbeat, no tones, no terminal bell (`\a`).
-* `escape_game/sound.py` is deleted. No module imports `winsound`.
-* The `--mute` option is removed *(default)*. There is nothing to mute.
-* The tension cues that used to be heard are now only seen: beating hearts, the Reaper's pulsing aura, the status line, the red danger frame.
-* *Changes R1 and R4:* their sound tests were adapted to check that nothing sounds.
 
 ## Program structure
 

@@ -3,7 +3,7 @@
     py -m escape_game                     graphical game window (default)
     py -m escape_game --text [--no-color] play inside the terminal instead
 
-The game makes no sound (R15).
+The game makes no sound (R14).
 """
 
 import argparse
