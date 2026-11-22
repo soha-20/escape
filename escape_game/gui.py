@@ -9,8 +9,6 @@ once per turn and scrolled, while the figures, mist and glows are redrawn every 
 """
 
 import math
-import queue
-import threading
 import time
 import tkinter as tk
 from dataclasses import dataclass
@@ -18,7 +16,6 @@ from dataclasses import dataclass
 from .game import MAX_LIVES, Game, Outcome, Status
 from .maze import WARNING
 from .render import GAME_OVER, LIFE_LOST, bump_line, jump_line, reaper_line
-from .sound import Sound
 
 TILE = 52            # pixels per maze tile
 VIEW_COLS, VIEW_ROWS = 15, 9   # the camera shows this many tiles, centred on the player
@@ -317,33 +314,6 @@ def draw_reaper(cv: tk.Canvas, cx: float, cy: float, s: float = 1.0, tag="reaper
 
 # --- the window ------------------------------------------------------------
 
-class SoundWorker:
-    """Plays sounds on a background thread so beeps never freeze the window."""
-
-    def __init__(self, sound: Sound):
-        self.sound = sound
-        self.jobs: queue.Queue = queue.Queue()
-        threading.Thread(target=self._run, daemon=True).start()
-
-    def _run(self):
-        while True:
-            name, args = self.jobs.get()
-            getattr(self.sound, name)(*args)
-
-    def heartbeat(self, distance):
-        if self.jobs.empty():  # skip a beat rather than fall behind
-            self.jobs.put(("heartbeat", (distance,)))
-
-    def caught(self):
-        self.jobs.put(("caught", ()))
-
-    def escaped(self):
-        self.jobs.put(("escaped", ()))
-
-    def life_lost(self):
-        self.jobs.put(("life_lost", ()))
-
-
 @dataclass
 class Motion:
     """R8: one turn being shown as a slide (or, R10, a jump) from the old tiles to the new ones."""
@@ -364,10 +334,8 @@ class GameWindow:
     INTRO, PLAYING, CAUGHT, OVER = "intro", "playing", "caught", "over"
     MIST_PUFFS = 6
 
-    def __init__(self, root: tk.Tk, sound=None, threaded_sound: bool = True, animate: bool = True):
+    def __init__(self, root: tk.Tk, animate: bool = True):
         self.root = root
-        sound = sound if sound is not None else Sound()
-        self.sound = SoundWorker(sound) if threaded_sound else sound
         self.animate = animate
         self.game = Game()
         self.motion: Motion | None = None
@@ -402,14 +370,12 @@ class GameWindow:
         if self.state == self.INTRO:
             self.state = self.PLAYING
             self.redraw()
-            self.sound.heartbeat(self.game.reaper_distance())
             return
         if self.state == self.CAUGHT:  # R4: wait for R, then back to the start tiles
             if keysym in ("r", "R") and self.game.resume() is Outcome.RESUMED:
                 self.state = self.PLAYING
                 self.message = ""
                 self.redraw()
-                self.sound.heartbeat(self.game.reaper_distance())
             return
         if self.state == self.OVER:
             if keysym in ("r", "R"):
@@ -418,7 +384,6 @@ class GameWindow:
                 self.state = self.PLAYING
                 self.message = ""
                 self.redraw()
-                self.sound.heartbeat(self.game.reaper_distance())
             return
         game = self.game
         before = game.player, game.reaper
@@ -444,15 +409,6 @@ class GameWindow:
             self.motion = Motion(before[0], game.player, before[1], game.reaper, game.jumped,
                                  JUMP_FRAMES if game.jumped else SLIDE_FRAMES)
         self.redraw()
-        if outcome is Outcome.MOVED:
-            if game.status is Status.PLAYING:
-                self.sound.heartbeat(game.reaper_distance())
-            elif game.status is Status.CAUGHT:
-                self.sound.life_lost()
-            elif game.status is Status.LOST:
-                self.sound.caught()
-            elif game.status is Status.WON:
-                self.sound.escaped()
 
     # --- where things are shown (R8) ---
     def _shown(self):
@@ -975,8 +931,8 @@ class GameWindow:
         self._after = self.root.after(round((self._next_frame - now) * 1000), self._tick)
 
 
-def run(mute: bool = False) -> int:
+def run() -> int:
     root = tk.Tk()
-    GameWindow(root, Sound(enabled=not mute))
+    GameWindow(root)
     root.mainloop()
     return 0

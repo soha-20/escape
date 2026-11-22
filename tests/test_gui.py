@@ -1,6 +1,6 @@
 """Tests for the graphical game window: figures, signs, lighting and keys.
 
-These open real (hidden) tkinter windows but never play sound.
+These open real (hidden) tkinter windows. Since R15 the game makes no sound at all.
 """
 
 import tkinter as tk
@@ -10,23 +10,6 @@ import pytest
 from escape_game.game import Game, Status
 from escape_game.gui import (GREEN, HEART_LOST, MOONLIGHT, RED, TILE, TORCH_REACH, VIEW_COLS, VIEW_ROWS, GameWindow,
                              camera_origin, danger_colour, heartbeat_period_ms, light_level, shade, torch_glow)
-
-
-class FakeSound:
-    def __init__(self):
-        self.played = []
-
-    def heartbeat(self, distance):
-        self.played.append(("heartbeat", distance))
-
-    def caught(self):
-        self.played.append(("caught",))
-
-    def escaped(self):
-        self.played.append(("escaped",))
-
-    def life_lost(self):
-        self.played.append(("life_lost",))
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +25,7 @@ def tk_root():
 
 @pytest.fixture
 def window(tk_root):
-    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False, animate=False)
+    win = GameWindow(tk.Toplevel(tk_root), animate=False)
     win.root.withdraw()
     yield win
     win.close()
@@ -103,7 +86,7 @@ def test_R1_any_key_starts_the_chase(window):
     assert window.state == window.PLAYING
     assert window.game.turn == 0
     assert not window.canvas.find_withtag("overlay")
-    assert window.sound.played == [("heartbeat", 4)]
+    assert not hasattr(window, "sound")  # R15: no heartbeat sound any more
 
 
 def test_R1_player_figure_is_drawn_on_the_player_tile(window):
@@ -163,12 +146,11 @@ def test_R1_red_border_warns_when_the_reaper_is_close(window):
     assert window.canvas.itemcget("danger", "outline") == RED
 
 
-def test_R1_escaping_shows_victory_screen_and_plays_escape_sound(window):
-    """R1: reaching the exit shows YOU ESCAPED! and plays the rising tune."""
+def test_R1_escaping_shows_victory_screen(window):
+    """R1: reaching the exit shows YOU ESCAPED! (Changed by R15: no rising tune any more.)"""
     press(window, "space", *route_keys(window.game))
     assert window.game.status is Status.WON
     assert texts(window, "ending_title") == ["YOU ESCAPED!"]
-    assert window.sound.played[-1] == ("escaped",)
 
 
 def test_R1_r_restarts_after_the_game_ends(window):
@@ -183,7 +165,7 @@ def test_R1_r_restarts_after_the_game_ends(window):
 
 def test_R1_escape_key_closes_the_window(tk_root):
     """R1: Esc quits the game."""
-    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False)
+    win = GameWindow(tk.Toplevel(tk_root))
     toplevel = win.root
     win.on_key("Escape")
     assert toplevel not in tk_root.winfo_children()
@@ -276,12 +258,11 @@ def test_R2_exit_door_is_drawn_when_seen(window):
 # --- R3: losing --------------------------------------------------------------
 
 def test_R3_caught_shows_game_over_with_the_reaper(window):
-    """R3: being caught on the last life shows GAME OVER, a big reaper and plays the caught sound."""
+    """R3: being caught on the last life shows GAME OVER and a big reaper. (R15: silently.)"""
     lose_all_lives(window)
     assert window.game.status is Status.LOST
     assert texts(window, "ending_title") == ["GAME OVER"]
     assert window.canvas.find_withtag("overlay") and window.canvas.find_withtag("reaper_eyes")
-    assert window.sound.played[-1] == ("caught",)
 
 
 def test_R3_moves_are_ignored_after_game_over(window):
@@ -295,14 +276,13 @@ def test_R3_moves_are_ignored_after_game_over(window):
 # --- R4: three lives; R resumes ------------------------------------------------
 
 def test_R4_catch_with_lives_left_shows_caught_screen(window):
-    """R4: a catch with lives left shows CAUGHT!, explains R, and plays the life-lost tone."""
+    """R4: a catch with lives left shows CAUGHT! and explains R. (R15: no life-lost tone any more.)"""
     press(window, "space", *CATCH)
     assert window.game.status is Status.CAUGHT
     assert window.state == window.CAUGHT
     assert texts(window, "caught_title") == ["CAUGHT!"]
     assert any("Press R to resume" in t for t in texts(window, "blink"))
     assert not window.canvas.find_withtag("ending_title")
-    assert window.sound.played[-1] == ("life_lost",)
 
 
 def test_R4_moves_are_ignored_until_r_is_pressed(window):
@@ -320,7 +300,6 @@ def test_R4_r_resumes_from_the_start_tiles(window):
     assert window.state == window.PLAYING and game.status is Status.PLAYING
     assert (game.player, game.reaper) == (game.maze.player_start, game.maze.reaper_start)
     assert not window.canvas.find_withtag("caught_title")
-    assert window.sound.played[-1] == ("heartbeat", 4)
     press(window, "Right")
     assert game.turn == 3
 
@@ -422,7 +401,7 @@ def test_R7_open_graves_and_thorns_are_drawn_when_in_light(window):
 
 
 def test_R7_stepping_into_an_open_grave_shows_hurt_screen(window):
-    """R7: a hazard costs a life: HURT! names the open grave, shows the player, plays the life-lost tone."""
+    """R7: a hazard costs a life: HURT! names the open grave and shows the player. (R15: silently.)"""
     press(window, "space", "Right", "Right", "Right", "Right")
     assert window.state == window.CAUGHT and window.game.hurt_by == "open grave"
     assert texts(window, "caught_title") == ["HURT!"]
@@ -431,7 +410,6 @@ def test_R7_stepping_into_an_open_grave_shows_hurt_screen(window):
     assert overlay & set(window.canvas.find_withtag("flame"))          # the big figure is the player...
     assert not overlay & set(window.canvas.find_withtag("reaper_eyes"))  # ...not the reaper
     assert heart_counts(window, "big_heart", "big_heart_lost") == (2, 1)
-    assert window.sound.played[-1] == ("life_lost",)
 
 
 def test_R7_r_resumes_after_a_hazard(window):
@@ -449,7 +427,6 @@ def test_R7_game_over_by_hazard_names_it(window):
     assert window.game.status is Status.LOST
     assert texts(window, "ending_title") == ["GAME OVER"]
     assert any("You fell into an open grave." in t for t in texts(window, "overlay"))
-    assert window.sound.played[-1] == ("caught",)
 
 
 def test_R2_every_sign_message_fits_inside_the_window(window):
@@ -499,7 +476,7 @@ def test_R10_up_arrow_jumps_the_open_grave_east_of_the_start(window):
     press(window, "space", "Right", "Right", "Right", "Up")
     game = window.game
     assert game.player == (1, 10) and game.turn == 4 and game.lives == 3
-    assert window.state == window.PLAYING and window.sound.played[-1][0] == "heartbeat"
+    assert window.state == window.PLAYING
 
 
 def test_R10_w_still_moves_north_but_up_no_longer_does(window):
@@ -550,7 +527,7 @@ from escape_game.gui import (JUMP_FRAMES, SLIDE_FRAMES, camera_at, ease, hover, 
 @pytest.fixture
 def animated(tk_root):
     """A window that shows each turn as a slide, driven by calling _tick() by hand."""
-    win = GameWindow(tk.Toplevel(tk_root), FakeSound(), threaded_sound=False, animate=True)
+    win = GameWindow(tk.Toplevel(tk_root), animate=True)
     win.root.withdraw()
     win.root.after_cancel(win._after)
     real_after = win.root.after
