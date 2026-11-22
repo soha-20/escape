@@ -1,19 +1,18 @@
 # CLAUDE.md — standing rules for this project
 
 ## Project
-A short, turn-based escape game started from the terminal: the player escapes a fixed maze while the Grim Reaper chases them.
+A short escape game started from the terminal: the player runs a fixed graveyard path while the Grim Reaper chases them (real time in the window, turn-based in `--text`).
 The main interface is a tkinter game window with drawn figures (`gui.py`); a plain terminal version remains behind `--text`.
 Requirements are in `problem.md`; the design is in `spec.md`. Read both before changing behaviour.
 
 ## Language
-- Python 3.10+ (developed on 3.13), **standard library only** for the game itself (tkinter for graphics, winsound for sound).
+- Python 3.10+ (developed on 3.13), **standard library only** for the game itself (tkinter for graphics). The game has no sound (R14).
 - `pytest` is the only development dependency.
 - Use `py` (the Windows Python launcher) in commands.
 
 ## Run the program
 ```
-py -m escape_game          # game window, with sound
-py -m escape_game --mute   # game window, no sound
+py -m escape_game          # game window (real time: hold keys to run)
 py -m escape_game --text   # play inside the terminal instead
 ```
 
@@ -25,9 +24,9 @@ py -m pytest
 ## Rules
 - **Every test names the requirement ID it checks** (R1, R2, R3, ...). Put the ID in the test function name, e.g. `test_R3_player_caught_when_reaper_reaches_tile`, and repeat it in the docstring.
 - Every requirement in `problem.md` has at least one test.
-- Keep game logic (`maze.py`, `game.py`) free of input/output, so it can be tested directly. Drawing, input and sound belong in `gui.py`, `__main__.py`, `render.py` and `sound.py`.
-- Tests must never play real sound. Inject a fake beep function or fake sound object instead.
-- Window tests use hidden tkinter windows and check tagged canvas items; after a visual change, also look at a screenshot of the real window.
+- Keep game logic (`maze.py`, `game.py`) free of input/output, so it can be tested directly. Drawing and input belong in `gui.py`, `__main__.py` and `render.py`. Real-time rules (the chase clock) live in `game.py` and are driven by `Game.update(ms)`.
+- The game must stay silent (R14): no `winsound`, no terminal bell. `tests/test_silence.py` checks this.
+- Window tests use hidden tkinter windows (`autorun=False`), let time pass with `advance(ms)`, and check tagged canvas items (the HUD is on `window.hud`); after a visual change, also look at a screenshot of the real window.
 - When a requirement or decision changes, update `spec.md` in the same commit as the code.
 - When a new requirement changes what an earlier one means (as R4 changed R3), adapt the earlier tests and keep their requirement ID. Don't delete them, and say so in the commit message.
 - Record each decision that had real alternatives in `docs/decisions/` as a Y-statement. Number the files `0001-…`, `0002-…`, and so on.
