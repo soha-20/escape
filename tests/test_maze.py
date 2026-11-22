@@ -2,6 +2,8 @@
 
 Round 3 (R6) replaced the corridor maze with an open graveyard. The R2 tests below were adapted:
 open ground has no corridor forks, so the signs now mark fenced dead-end plots and the gates that lead on.
+Round 5 (R12) lays the graveyard out along a gravel path whose hurdles must be jumped, so the R2, R6,
+R7 and R10 tests were adapted again: the safe route is Maze.player_route (walking and jumping).
 """
 
 import pytest
@@ -15,7 +17,14 @@ def maze():
 
 
 def safe_route(maze):
-    return maze.shortest_path(maze.player_start, maze.exit, avoid_hazards=True)
+    """R12: the player's way to the exit, walking and jumping, never landing on a hazard."""
+    return maze.player_route(maze.player_start, maze.exit)
+
+
+def jumped_tiles(route):
+    """The tiles the route leaps over (between two route tiles 2 apart)."""
+    return [((a[0] + b[0]) // 2, (a[1] + b[1]) // 2) for a, b in zip(route, route[1:])
+            if abs(a[0] - b[0]) + abs(a[1] - b[1]) == 2]
 
 
 def step(pos, direction):
@@ -74,7 +83,7 @@ def test_R2_every_dead_end_beside_the_route_is_signed(maze):
     """R2: wherever the safe route passes a dead end, a warning sign stands there."""
     route = safe_route(maze)
     warned = {warned_entrance(maze, p) for p, s in maze.signs.items() if s.kind == WARNING}
-    for tile in route:
+    for tile in route[1:]:  # R12: behind the start lies only the stretch the Reaper comes from
         for first in maze.neighbours(tile):
             if first not in route and is_dead_end(maze, tile, first, route):
                 if len(region_beyond(maze, tile, first)) >= 3:  # deep enough to be fatal
@@ -94,7 +103,7 @@ def test_R2_guide_signs_point_along_a_shortest_safe_way(maze):
     assert len(guides) >= 2
 
     def safe_dist(p):
-        return len(maze.shortest_path(p, maze.exit, avoid_hazards=True)) - 1
+        return len(maze.player_route(p, maze.exit)) - 1
 
     route = safe_route(maze)
     for pos, sign in guides.items():
@@ -148,11 +157,14 @@ def test_R6_graveyard_is_fenced_and_full_of_graves(maze):
         assert maze.obstacle((0, c)) == "iron fence" or (0, c) in maze.signs
 
 
-def test_R6_graveyard_is_open_ground_not_corridors(maze):
-    """R6: unlike the old maze, most walkable tiles have room on three or four sides."""
-    walkable = [(r, c) for r in range(maze.height) for c in range(maze.width) if not maze.is_wall((r, c))]
-    roomy = [p for p in walkable if len(maze.neighbours(p)) >= 3]
-    assert len(roomy) > len(walkable) / 2
+def test_R6_graveyard_is_a_path_through_graves_not_a_maze(maze):
+    """R6 (changed by R12 in round 5): no longer open ground, but not a maze either: one path to
+    follow, which forks only where a warning sign stands."""
+    route = safe_route(maze)
+    jumped = set(jumped_tiles(route))
+    forks = [t for t in route[1:] if any(n not in route and n not in jumped for n in maze.neighbours(t))]
+    warned = {warned_entrance(maze, p) for p, s in maze.signs.items() if s.kind == WARNING}
+    assert forks and set(forks) <= warned
 
 
 def test_R6_every_layout_mark_has_a_graveyard_name():
@@ -217,18 +229,6 @@ def test_R6_every_patch_of_grass_can_be_reached(maze):
 
 # --- R10: low hurdles the player can jump -------------------------------------
 
-def walking_distances(maze):
-    """Moves the player needs on foot (no hazards, no low hurdles) from each tile to the exit."""
-    dist, todo = {maze.exit: 0}, [maze.exit]
-    while todo:
-        cur = todo.pop(0)
-        for nxt in maze.neighbours(cur, avoid_hazards=True):
-            if nxt not in dist:
-                dist[nxt] = dist[cur] + 1
-                todo.append(nxt)
-    return dist
-
-
 def test_R10_low_hurdles_are_fallen_headstones_and_coffins(maze):
     """R10: the graveyard has low hurdles of two kinds: fallen headstones (=) and coffins (C)."""
     assert LOW_HURDLES == {"=": "fallen headstone", "C": "coffin"}
@@ -247,29 +247,94 @@ def test_R10_low_hurdles_block_the_player_on_foot_but_not_the_reaper():
     assert not small.is_wall((1, 2))
 
 
-def test_R10_every_low_hurdle_offers_a_jump_that_saves_a_turn(maze):
-    """R10: each low hurdle lies beside the safe route, where jumping it lands 2 steps closer to the exit."""
-    dist = walking_distances(maze)
-    route = safe_route(maze)
+def test_R10_every_low_hurdle_lies_on_the_route_and_is_jumped(maze):
+    """R10 (changed by R12 in round 5): each low hurdle lies across the path, and the route leaps it."""
+    jumped = jumped_tiles(safe_route(maze))
     for hurdle in tiles_of(maze, "=") + tiles_of(maze, "C"):
-        shortcuts = []
-        for tile in route:
-            dr, dc = hurdle[0] - tile[0], hurdle[1] - tile[1]
-            if abs(dr) + abs(dc) == 1:
-                land = (hurdle[0] + dr, hurdle[1] + dc)
-                if land in dist and dist[land] <= dist[tile] - 2:
-                    shortcuts.append(tile)
-        assert shortcuts, f"jumping the low hurdle at {hurdle} saves nothing"
+        assert hurdle in jumped, f"the low hurdle at {hurdle} is not on the route"
 
 
-def test_R10_low_hurdles_wall_in_no_grass(maze):
-    """R10: the player can still walk to every patch of grass without jumping."""
+def test_R10_walking_and_jumping_reach_every_patch_of_ground(maze):
+    """R10 (changed by R12): hurdles block walking, but with jumps the player can reach every safe tile."""
     reach, stack = {maze.player_start}, [maze.player_start]
     while stack:
-        for nxt in maze.neighbours(stack.pop(), avoid_hazards=True):
+        for nxt, _ in maze.player_moves(stack.pop()):
             if nxt not in reach:
                 reach.add(nxt)
                 stack.append(nxt)
     grass = {(r, c) for r in range(maze.height) for c in range(maze.width)
              if not maze.is_wall((r, c)) and not maze.hazard((r, c)) and not maze.low_hurdle((r, c))}
     assert grass == reach
+
+
+def test_R10_player_moves_step_or_jump_onto_safe_ground():
+    """R10: one move is a step onto safe ground or a leap over a hurdle or hazard onto safe ground."""
+    small = Maze("#######\n#RP= E#\n# O   #\n#     #\n#######", signs={})
+    assert small.player_moves((1, 2)) == [((3, 2), True), ((1, 1), False), ((1, 4), True)]
+    assert small.player_route((1, 2), (1, 5)) == [(1, 2), (1, 4), (1, 5)]
+
+
+# --- R12: a structured graveyard, not scattered graves -----------------------
+
+def test_R12_a_gravel_path_leads_from_the_start_to_the_exit(maze):
+    """R12: every tile the safe route touches is gravel path (or the start or the gate)."""
+    route = safe_route(maze)
+    assert route[0] == maze.player_start and route[-1] == maze.exit
+    assert all(maze.on_path(t) for t in route)
+    assert not maze.on_path((3, 20))  # the dead-end alleys are grass, not path
+    assert len(tiles_of(maze, ".")) >= 60
+
+
+def test_R12_graves_stand_in_neat_rows(maze):
+    """R12: no gravestone stands alone; each is part of a row, and there are long, unbroken rows."""
+    for r, c in tiles_of(maze, "+"):
+        assert maze.is_wall((r, c - 1)) or maze.is_wall((r, c + 1)), f"stray gravestone at {(r, c)}"
+    rows = maze.layout.splitlines()
+    long_rows = [row for row in rows[1:-1] if sum(ch in "+T!" for ch in row[1:-1]) >= len(row) - 4]
+    assert len(long_rows) >= 5
+
+
+def test_R12_trees_punctuate_the_rows_at_a_steady_spacing(maze):
+    """R12: in the grave rows, a dead tree stands every sixth column."""
+    rows = maze.layout.splitlines()
+    for r in (2, 4, 6, 8, 10):
+        assert [c for c, ch in enumerate(rows[r]) if ch == "T"] == [4, 10, 16, 22]
+
+
+def test_R12_hurdles_lie_on_the_path_at_a_steady_rhythm(maze):
+    """R12: the route leaps at least 12 hurdles, 3 to 5 tiles apart along each lane."""
+    route = safe_route(maze)
+    jumps = [i for i, (a, b) in enumerate(zip(route, route[1:])) if abs(a[0] - b[0]) + abs(a[1] - b[1]) == 2]
+    assert len(jumps) >= 12
+    for a, b in zip(jumps, jumps[1:]):
+        if route[a][0] == route[b][0]:  # same lane
+            tiles_between = sum(abs(p[1] - q[1]) for p, q in zip(route[a + 1:b + 1], route[a + 2:b + 1])) + 1
+            assert 3 <= tiles_between <= 5, f"jumps at {route[a]} and {route[b]} are {tiles_between} apart"
+
+
+def test_R12_every_jump_is_taken_running_straight(maze):
+    """R12/R14: no hurdle lies at a bend, so the player reaches each one running in the jump's direction."""
+    route = safe_route(maze)
+    for i in range(1, len(route) - 1):
+        a, b = route[i], route[i + 1]
+        if abs(a[0] - b[0]) + abs(a[1] - b[1]) == 2:
+            before = (a[0] - route[i - 1][0], a[1] - route[i - 1][1])
+            jump = ((b[0] - a[0]) // 2, (b[1] - a[1]) // 2)
+            assert before == jump, f"the jump from {a} needs a turn first"
+
+
+def test_R12_each_lane_ends_against_a_dead_tree(maze):
+    """R12: where the path turns off a lane into a bend, a dead tree stands straight ahead."""
+    route = safe_route(maze)
+    for prev, cur, nxt in zip(route, route[1:], route[2:]):
+        came = (cur[0] - prev[0], cur[1] - prev[1])
+        goes = (nxt[0] - cur[0], nxt[1] - cur[1])
+        if came[0] == 0 and goes[1] == 0 and nxt != maze.exit:  # off a lane, into a bend
+            ahead = (cur[0] + came[0], cur[1] + came[1] // abs(came[1]))
+            assert maze.obstacle(ahead) == "dead tree", f"the lane ending at {cur} has no tree"
+
+
+def test_R12_the_exit_gate_is_in_the_south_fence(maze):
+    """R12: the path ends at an iron gate set in the graveyard fence."""
+    assert maze.exit[0] == maze.height - 1
+    assert maze.on_path((maze.exit[0] - 1, maze.exit[1]))

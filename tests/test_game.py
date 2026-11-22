@@ -9,21 +9,25 @@ STEP_TO_DIR = {v: k for k, v in DIRECTIONS.items()}
 
 
 def walk(game, tiles):
-    """Move the player along consecutive tiles; stop early if the game ends."""
+    """Move the player along tiles 1 apart (a step) or 2 apart (a jump, R10); stop early if the game ends."""
     for nxt in tiles:
         if game.status is not Status.PLAYING:
             break
         delta = (nxt[0] - game.player[0], nxt[1] - game.player[1])
-        assert game.move(STEP_TO_DIR[delta]) is Outcome.MOVED
+        if abs(delta[0]) + abs(delta[1]) == 2:  # face that way, then leap
+            game.facing = STEP_TO_DIR[(delta[0] // 2, delta[1] // 2)]
+            assert game.jump() is Outcome.MOVED
+        else:
+            assert game.move(STEP_TO_DIR[delta]) is Outcome.MOVED
 
 
 def solution(game):
-    """The shortest way to the exit that steps on no hazard (R7)."""
-    return game.maze.shortest_path(game.player, game.maze.exit, avoid_hazards=True)[1:]
+    """The shortest way to the exit that never lands on a hazard (R7), jumping the hurdles on the path (R12)."""
+    return game.maze.player_route(game.player, game.maze.exit)[1:]
 
 
 def path_to(game, goal):
-    return game.maze.shortest_path(game.player, goal, avoid_hazards=True)[1:]
+    return game.maze.player_route(game.player, goal)[1:]
 
 
 # --- R1: the game starts and the player escapes the reaper -----------------
@@ -54,7 +58,7 @@ def test_R1_following_the_signs_escapes_the_reaper():
     walk(game, solution(game))
     assert game.status is Status.WON
     assert game.player == game.maze.exit
-    assert game.turn == 59
+    assert game.turn == 79  # R12: 65 steps and 14 jumps along the path
 
 
 def test_R1_reaper_does_not_move_after_player_escapes():
@@ -110,6 +114,7 @@ def test_R1_nothing_is_hidden_by_fog_any_more():
 
 # --- R2: following signs vs ignoring them ----------------------------------
 # Adapted in round 3 (R6): the dead ends are fenced plots in open ground, not corridor branches.
+# Adapted in round 5 (R12): the dead ends are side paths off the gravel path, and the route jumps hurdles.
 
 def warned_plots(maze):
     """(entrance tile, first tile inside, every tile of the plot) for each warning sign."""
@@ -138,11 +143,15 @@ def warned_plots(maze):
 
 
 def test_R2_following_the_safe_route_keeps_the_reaper_four_steps_behind():
-    """R2: walking the way the signs describe, the reaper never gains on the player."""
+    """R2: walking the way the signs describe, the reaper never gains on the player (in --text, turn-based).
+
+    Changed by R12: each jump on the path gains the player a step, so the gap grows from 4."""
     game = Game()
+    gaps = []
     for nxt in solution(game)[:-1]:
         walk(game, [nxt])
-        assert game.reaper_distance() == 4
+        gaps.append(game.reaper_distance())
+    assert min(gaps) == 4 and gaps == sorted(gaps)
     walk(game, solution(game))
     assert game.status is Status.WON
 
@@ -155,7 +164,7 @@ def test_R2_ignoring_a_warning_sign_gets_the_player_caught(plot):
     entrance, first, tiles = sorted(warned_plots(maze))[plot]
     walk(game, path_to(game, entrance))
     assert game.status is Status.PLAYING
-    deepest = max(tiles, key=lambda t: len(maze.shortest_path(entrance, t, avoid_hazards=True) or []))
+    deepest = max(tiles, key=lambda t: len(maze.player_route(entrance, t) or []))
     walk(game, path_to(game, deepest))
     walk(game, path_to(game, entrance))
     walk(game, solution(game))
@@ -168,9 +177,11 @@ def test_R2_one_hesitation_step_is_survivable():
     game = Game()
     entrance, first, _ = next(p for p in warned_plots(game.maze)
                               if game.maze.signs_next_to(p[0])[0].text.startswith("Wanna get stuck?"))
-    walk(game, path_to(game, entrance) + [first, entrance])
+    walk(game, path_to(game, entrance))
+    gap = game.reaper_distance()
+    walk(game, [first, entrance])
     assert game.status is Status.PLAYING
-    assert game.reaper_distance() == 2
+    assert game.reaper_distance() == gap - 2
     walk(game, solution(game))
     assert game.status is Status.WON
 
@@ -526,13 +537,15 @@ def test_R10_no_jumping_while_caught_or_after_the_game():
 
 
 def test_R10_a_jump_on_the_way_gains_a_step_on_the_reaper():
-    """R10: jumping the fallen headstone beside the route puts the reaper 5 steps behind, and the player still wins."""
+    """R10: jumping the coffin on the path puts the reaper one more step behind, and the player still wins.
+
+    Changed by R12: the coffin lies across the path, so it must be jumped."""
     game = Game()
     route = solution(game)
-    walk(game, route[:route.index((3, 19)) + 1])
-    assert game.reaper_distance() == 4
-    assert game.move("right") is Outcome.WALL and game.bumped == "fallen headstone"
-    assert game.jump() is Outcome.MOVED and game.player == (3, 21)
-    assert game.reaper_distance() == 5
+    walk(game, route[:route.index((1, 13)) + 1])
+    gap = game.reaper_distance()
+    assert game.move("right") is Outcome.WALL and game.bumped == "coffin"
+    assert game.jump() is Outcome.MOVED and game.player == (1, 15)
+    assert game.reaper_distance() == gap + 1
     walk(game, solution(game))
     assert game.status is Status.WON

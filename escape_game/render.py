@@ -13,6 +13,7 @@ STYLES = {
     "hazard": "\033[1;91m",   # R7: open graves and thorn bushes, bold bright red
     "low": "\033[1;96m",      # R10: low hurdles to jump, bold bright cyan
     "dim": "\033[2;90m",
+    "path": "\033[2;33m",    # R12: the gravel path, dim yellow
     WARNING: "\033[1;91m",    # bold bright red
     GUIDE: "\033[1;92m",      # bold bright green
     "danger": "\033[1;91m",
@@ -21,8 +22,9 @@ STYLES = {
 INTRO = (
     "You wake among the graves of a fenced graveyard at midnight.\n"
     "Something breathes behind you. The Grim Reaper has come for you.\n"
-    "Find the gate out. Read the signposts. Mind the open graves (O) and thorns (*).\n"
-    "Leap over coffins (C), fallen headstones (=) and even open graves: face them and type j.\n"
+    "Follow the gravel path (.) to the gate (E). Read the signposts.\n"
+    "Coffins (C), fallen headstones (=), open graves (O) and thorns (*) lie across the path:\n"
+    "leap them: face them and type j.\n"
     "Don't look back.\n"
 )
 
@@ -88,7 +90,9 @@ def tile(game: Game, pos, color: bool) -> str:
     low = maze.low_hurdle(pos)
     if low:
         return paint(MARKS[low], "low", color)
-    return paint(".", "dim", color)
+    if maze.on_path(pos):
+        return paint(".", "path", color)  # R12: the gravel path
+    return paint(",", "dim", color)      # grass
 
 
 def draw_map(game: Game, color: bool = True) -> str:

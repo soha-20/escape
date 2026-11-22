@@ -19,17 +19,22 @@ class Recorder:
 
 
 def keys_to(goal=None):
-    """Enter-separated keys along the shortest hazard-free way from the start (R7)."""
+    """Enter-separated keys along the player's way from the start (R7: no hazards; R12: j over the
+    hurdles on the path, which are always met running straight, so the player already faces them)."""
     game = Game()
-    path = game.maze.shortest_path(game.player, goal or game.maze.exit, avoid_hazards=True)
-    return "".join(KEY_FOR[(b[0] - a[0], b[1] - a[1])] + "\n" for a, b in zip(path, path[1:]))
+    path = game.maze.player_route(game.player, goal or game.maze.exit)
+    keys = []
+    for a, b in zip(path, path[1:]):
+        dr, dc = b[0] - a[0], b[1] - a[1]
+        keys.append("j" if abs(dr) + abs(dc) == 2 else KEY_FOR[(dr, dc)])
+    return "".join(k + "\n" for k in keys)
 
 
 def winning_keys():
     return keys_to()
 
 
-FIRST_WARNING = (4, 23)  # the tile in front of the "Wanna get stuck?" signpost
+FIRST_WARNING = (3, 26)  # the tile in front of the "Wanna get stuck?" signpost (R12 layout)
 
 
 def play(keys, *extra_args):
@@ -52,7 +57,7 @@ def test_R1_full_game_escape_through_the_cli():
     """R1: typing the right moves escapes the reaper and plays the escape tune."""
     code, out, beeps = play(winning_keys())
     assert code == 0
-    assert "You escaped the Reaper in 59 turns!" in out
+    assert "You escaped the Reaper in 79 turns!" in out
     assert beeps[-len(ESCAPED_TONES):] == ESCAPED_TONES
 
 
@@ -199,6 +204,6 @@ def test_R10_failed_jump_and_low_hurdle_bump_are_explained():
     """R10: the terminal says why a jump failed, and how to jump a low hurdle that blocks the way."""
     _, out, _ = play("j\nq\n")
     assert "There is nothing here to jump over." in out
-    keys = keys_to((3, 19)) + "d\n"  # walk up to the fallen headstone and bump into it
+    keys = keys_to((1, 13)) + "d\n"  # run up to the coffin on the path and bump into it
     _, out, _ = play(keys + "q\n")
-    assert "A fallen headstone blocks your way. Type j to jump over it." in out
+    assert "A coffin blocks your way. Type j to jump over it." in out

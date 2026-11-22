@@ -57,7 +57,7 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 
 ```
 #############################
-#R...P...C....O....*...=...T#
+#R...P...O....C....*...=...T#
 #+++T+++++T+++++T+++++T++!.+#
 #+++++++++++++++O*        .!#
 #+++T+++++T+++++T+++++T+++.+#
@@ -143,7 +143,7 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 * **Win.** Reaching the exit shows a "YOU ESCAPED!" screen with the time (window) or turn count (`--text`).
 * **Fallback.** If the window can't open (no tkinter, no display), the program says so and starts the terminal version instead.
 * **Terminal version (`--text`).** Turn-based (see the turn order above):
-  * It draws the whole graveyard with `@` (player), `R` (reaper), `E`, and the layout marks, using ANSI colours (`--no-color` for plain text). Hazards are red, low hurdles cyan, the path dim yellow.
+  * It draws the whole graveyard with `@` (player), `R` (reaper), `E`, and the layout marks, using ANSI colours (`--no-color` for plain text). The path is `.` in dim yellow and grass is `,` (R12). Hazards are red, low hurdles cyan.
   * Each move is `w`/`a`/`s`/`d` + Enter, `j` + Enter jumps forward (R10), and `q` quits.
   * Unknown commands cost no turn.
   * It ignores the BOM (byte-order mark) that Windows PowerShell adds to piped input.

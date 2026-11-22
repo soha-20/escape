@@ -13,7 +13,7 @@ def test_R1_player_is_drawn_and_far_tiles_are_shown():
     game = Game()
     lines = rows(game)
     assert lines[1][5] == "@"
-    assert lines[15][6] == "E"  # the exit, far away, is already on the map
+    assert lines[13][14] == "E"  # the exit, far away, is already on the map
     assert " " not in "".join(lines)  # no blacked-out tiles
 
 
@@ -36,10 +36,8 @@ def test_R1_status_line_warns_how_close_the_reaper_is():
 def test_R2_signs_drawn_as_exclamation_marks_on_walls():
     """R2: signs on walls are marked '!' when in view."""
     game = Game()
-    path = game.maze.shortest_path(game.player, (4, 21), avoid_hazards=True)
-    for a, b in zip(path, path[1:]):
-        game.move({(0, 1): "right", (0, -1): "left", (1, 0): "down", (-1, 0): "up"}[(b[0] - a[0], b[1] - a[1])])
-    assert rows(game)[3][23] == "!"
+    walk_to(game, (3, 26))
+    assert rows(game)[3][27] == "!"
 
 
 def test_R1_screen_shows_turn_and_controls_while_playing():
@@ -111,20 +109,25 @@ def test_R4_caught_screen_says_a_life_was_lost_and_how_to_resume():
 # --- R6 / R7: the graveyard in the terminal ---------------------------------
 
 def walk_to(game, goal):
-    path = game.maze.shortest_path(game.player, goal, avoid_hazards=True)
+    """Walk (and, since R12, jump) along the player's route to goal."""
+    path = game.maze.player_route(game.player, goal)
     names = {(0, 1): "right", (0, -1): "left", (1, 0): "down", (-1, 0): "up"}
     for a, b in zip(path, path[1:]):
-        game.move(names[(b[0] - a[0], b[1] - a[1])])
+        dr, dc = b[0] - a[0], b[1] - a[1]
+        if abs(dr) + abs(dc) == 2:
+            game.facing = names[(dr // 2, dc // 2)]
+            game.jump()
+        else:
+            game.move(names[(dr, dc)])
 
 
 def test_R6_graveyard_objects_are_drawn_with_their_own_marks():
     """R6: fences '#', gravestones '+' and dead trees 'T' appear around the player."""
     game = Game()
-    walk_to(game, (3, 6))
     lines = rows(game)
     assert lines[0][5] == "#"   # the graveyard fence
-    assert lines[4][6] == "+"   # a gravestone
-    assert lines[3][3] == "T"   # a dead tree
+    assert lines[2][5] == "+"   # a gravestone
+    assert lines[2][4] == "T"   # a dead tree
 
 
 def test_R6_intro_and_signs_speak_of_a_graveyard():
@@ -132,8 +135,8 @@ def test_R6_intro_and_signs_speak_of_a_graveyard():
     from escape_game.render import INTRO, sign_lines
     assert "graveyard" in INTRO and "maze" not in INTRO.lower()
     game = Game()
-    walk_to(game, (4, 23))
-    assert sign_lines(game, color=False) == ['Painted on a signpost in red: "Wanna get stuck? →"']
+    walk_to(game, (3, 26))
+    assert sign_lines(game, color=False) == ['Painted on a signpost in red: "Wanna get stuck? ←"']
 
 
 def test_R6_bump_line_names_the_obstacle():
@@ -147,7 +150,7 @@ def test_R6_bump_line_names_the_obstacle():
 def test_R7_hazards_are_drawn_in_red():
     """R7: open graves 'O' and thorn bushes '*' are marked in red so the player can avoid them."""
     game = Game()
-    assert rows(game)[1][9] == "O" and rows(game)[1][13] == "*"  # R9: shown from the start
+    assert rows(game)[1][9] == "O" and rows(game)[1][19] == "*"  # R9: shown from the start
     coloured = draw_map(game, color=True)
     assert "\033[1;91mO" in coloured and "\033[1;91m*" in coloured
 
@@ -181,13 +184,21 @@ def test_R9_the_text_map_shows_the_whole_graveyard_from_the_first_turn():
     assert all(len(line) == game.maze.width and " " not in line for line in lines)
 
 
+def test_R12_the_text_map_shows_the_gravel_path():
+    """R12: the path is drawn as '.' (dim yellow), the grass beside it as ','."""
+    game = Game()
+    lines = rows(game)
+    assert lines[1][6:9] == "..." and lines[3][20] == ","
+    assert "\033[2;33m." in draw_map(game, color=True)
+
+
 # --- R10: low hurdles and the jump in the terminal ------------------------------
 
 def test_R10_low_hurdles_are_drawn_with_their_marks_in_cyan():
     """R10: fallen headstones '=' and coffins 'C' are on the map, coloured so they stand out."""
     game = Game()
     lines = rows(game)
-    assert lines[3][20] == "=" and lines[9][27] == "C"
+    assert lines[1][23] == "=" and lines[1][14] == "C"
     assert "\033[1;96m=" in draw_map(game, color=True)
 
 

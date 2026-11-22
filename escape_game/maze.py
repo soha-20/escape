@@ -1,7 +1,10 @@
-"""The fixed graveyard (R6), its hurdles and hazards (R7), low hurdles (R10), its signs (R2), and pathfinding.
+"""The fixed graveyard (R6, R12), its hurdles and hazards (R7), low hurdles (R10), its signs (R2), and pathfinding.
+
+Since round 5 (R12) a gravel path winds in four lanes between neat rows of graves, from the start to
+the gate in the south fence; the hurdles lie on the path and must be jumped.
 
 The class keeps its round-1 name, Maze. Legend for LAYOUT:
-    (space) grass        P  player start  R  reaper start  E  exit gate
+    .  gravel path       (space) grass   P  player start  R  reaper start  E  exit gate
     #  iron fence        +  gravestone    T  dead tree     !  signpost (text in SIGNS)
     O  open grave        *  thorn bush    (hazards: walkable, but they cost the player a life)
     =  fallen headstone  C  coffin        (low hurdles: block walking, but the player can jump them;
@@ -14,23 +17,22 @@ from dataclasses import dataclass
 Pos = tuple[int, int]  # (row, column)
 
 LAYOUT = """\
-###############################
-#R   P   O   *   *    ++#     #
-#       +   +   +   + T+# + + #
-#  T                = +!#     #
-#     +   +   +   +        +  #
-#           *  O    O + #    +#
-#  +    +*  +   +   + T #######
-#            T        +      !#
-############################ ##
-#            O #!   O      C  #
-#  +   +   +      +   +   +   #
-#              #    *      = *#
-################ T  +   +  C  #
-# +  #! * +    #              #
-#                 +   +   +   #
-#  + #E  +  O  #!      *  O   #
-###############################"""
+#############################
+#R...P...O....C....*...=...T#
+#+++T+++++T+++++T+++++T++!.+#
+#+++++++++++++++O*        .!#
+#+++T+++++T+++++T+++++T+++.+#
+#T.....*....O....C....*....T#
+#+.+T+++++T+++++T+++++T+++++#
+#!.        *O+++++++++++++++#
+#+.+T+++++T+++++T+++++T+++++#
+#T....O....=....*....O.....T#
+#+++T+++++T+++++T+++++T+++.+#
+#+++++++++++++!!++++++++++.+#
+#O *          ....O...C....T#
+##############E##############"""
+
+PATH = "."  # R12: the gravel path (walkable, like grass)
 
 OBSTACLES: dict[str, str] = {"#": "iron fence", "+": "gravestone", "T": "dead tree", "!": "signpost"}
 HAZARDS: dict[str, str] = {"O": "open grave", "*": "thorn bush"}
@@ -56,11 +58,11 @@ class Sign:
 
 
 SIGNS: dict[Pos, Sign] = {
-    (3, 23): Sign("Wanna get stuck? →", WARNING, "right"),
-    (7, 29): Sign("↓ The gate lies this way. Hurry.", GUIDE, "down"),
-    (9, 16): Sign("← The family plot. Nobody leaves it.", WARNING, "left"),
-    (15, 16): Sign("← Through the old yard. Mind the graves.", GUIDE, "left"),
-    (13, 6): Sign("← The crypt yard. Nobody came back.", WARNING, "left"),
+    (2, 25): Sign("→ Round the bend and down. Hurry.", GUIDE, "right"),
+    (3, 27): Sign("Wanna get stuck? ←", WARNING, "left"),
+    (7, 1): Sign("The family plot. Nobody leaves it. →", WARNING, "right"),
+    (11, 14): Sign("← The crypt yard. Nobody came back.", WARNING, "left"),
+    (11, 15): Sign("← The gate is right here! RUN!", GUIDE, "left"),
 }
 
 
@@ -76,6 +78,7 @@ class Maze:
         self._obstacles: dict[Pos, str] = {}
         self._hazards: dict[Pos, str] = {}
         self._low: dict[Pos, str] = {}
+        self._path: set[Pos] = set()
         marks: dict[str, Pos] = {}
         sign_marks: set[Pos] = set()
         for r, row in enumerate(rows):
@@ -88,7 +91,10 @@ class Maze:
                     self._hazards[(r, c)] = HAZARDS[ch]
                 elif ch in LOW_HURDLES:
                     self._low[(r, c)] = LOW_HURDLES[ch]
+                elif ch == PATH:
+                    self._path.add((r, c))
                 elif ch in "PRE":
+                    self._path.add((r, c))  # the start tiles and the gate are drawn as path
                     if ch in marks:
                         raise ValueError(f"more than one {ch!r} in maze layout")
                     marks[ch] = (r, c)
@@ -124,6 +130,10 @@ class Maze:
         """R10: "fallen headstone" or "coffin" if pos holds a low hurdle the player can jump, else None."""
         return self._low.get(pos)
 
+    def on_path(self, pos: Pos) -> bool:
+        """R12: True if pos is part of the gravel path (the start tiles and the exit count too)."""
+        return pos in self._path
+
     def neighbours(self, pos: Pos, avoid_hazards: bool = False) -> list[Pos]:
         """Tiles orthogonally adjacent to pos that can be entered, in DIRECTIONS order.
 
@@ -155,6 +165,43 @@ class Maze:
                     came_from[nxt] = cur
                     queue.append(nxt)
         return None
+
+    def player_moves(self, pos: Pos) -> list[tuple[Pos, bool]]:
+        """R10/R12: where the player can get to in one move, as (tile, jumped), in DIRECTIONS order.
+
+        A step onto safe ground, or a jump over a low hurdle or hazard onto safe ground two tiles on."""
+        moves = []
+        for dr, dc in DIRECTIONS.values():
+            over = (pos[0] + dr, pos[1] + dc)
+            land = (pos[0] + 2 * dr, pos[1] + 2 * dc)
+            if self._safe(over):
+                moves.append((over, False))
+            elif (over in self._low or over in self._hazards) and self._safe(land):
+                moves.append((land, True))
+        return moves
+
+    def player_route(self, start: Pos, goal: Pos) -> list[Pos] | None:
+        """R12: a shortest way for the player (fewest moves), walking and jumping, never landing on a hazard.
+
+        Tiles from start to goal inclusive; consecutive tiles are 1 apart (a step) or 2 apart (a jump)."""
+        came_from: dict[Pos, Pos | None] = {start: None}
+        queue = deque([start])
+        while queue:
+            cur = queue.popleft()
+            if cur == goal:
+                path = [cur]
+                while came_from[path[-1]] is not None:
+                    path.append(came_from[path[-1]])
+                return path[::-1]
+            for nxt, _ in self.player_moves(cur):
+                if nxt not in came_from:
+                    came_from[nxt] = cur
+                    queue.append(nxt)
+        return None
+
+    def _safe(self, pos: Pos) -> bool:
+        """Ground the player can stand on: no obstacle, hazard or low hurdle."""
+        return not self.is_wall(pos) and pos not in self._hazards and pos not in self._low
 
     def distance(self, a: Pos, b: Pos) -> int | None:
         path = self.shortest_path(a, b)
