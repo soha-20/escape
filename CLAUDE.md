@@ -34,10 +34,23 @@ py -m pytest
 - Never undo or amend a commit, and never force-push, unless the user explicitly asks. Ask before pushing.
 - Handoff files (`HANDOFF-round-<n>.md`) are written only when the user asks. Leave them, and edits to this file, uncommitted until the user has reviewed them.
 - If a requirement is unclear, ask the user before writing code.
-- Before changing the layout in `maze.py`, simulate the chase on the new layout. The safe route must still win with the reaper 4 steps behind, and every grass tile must be reachable. The R2/R6/R7 layout tests check this.
+- Before changing the layout in `maze.py` or any pace constant in `game.py`, simulate the chase, both ways:
+  - turn-based (`--text`): the way out (by way of the key, `Maze.escape_route`) must win with the Reaper never closer than 4 steps;
+  - real time: use `run_route()` in `tests/test_chase.py`, which hesitates at every bend. A clean run must win, and the hesitation thresholds there must still hold.
+
+  Every grass tile must stay reachable. The Reaper glides over hazards, so it takes any shortcut too. The R2/R6/R7/R12/R13/R16/R17 tests check this. Keep the layout block in `spec.md` identical to `maze.LAYOUT`.
+- Use the requirement IDs exactly as the user writes them in `problem.md`; the user may renumber them. When renaming IDs with a regex, remember that `R15\b` does not match `test_R15_...`.
+- Tests and scripts must never write the player's real best-time file (`~/.escape_grim_reaper.json`, R18). Windows in tests use `best_file=None` (the default) or a `tmp_path` file.
+- Nothing may repaint the whole graveyard canvas during play: a full repaint takes 200–800 ms on the user's laptop (R15). Each frame may change only the figures; the HUD has its own canvas. Measure frame times with a live window (`autorun=True`) over a scripted run, not with tight `root.update()` loops: the laptop's CPU throttles and those numbers drift.
 
 ## Tooling notes
-- **Screenshots:** with Windows display scaling, `PIL.ImageGrab` coordinates are off. Grab the full screen, multiply window coordinates by `image.width / root.winfo_screenwidth()`, then crop. Pillow is for screenshots only, never a game dependency. Keep screenshot scripts in the session scratchpad.
-- **Screenshots, first frame:** run `root.update()` a few times with short sleeps before the first grab. Otherwise the window isn't settled and desktop pixels end up in the crop.
+- **Screenshots:** the display runs at 300 % scaling (3840×2160). The method that works:
+  1. Call `ctypes.windll.shcore.SetProcessDpiAwareness(1)` before `tk.Tk()`, then `root.tk.call("tk", "scaling", 96 / 72)`, so the window looks as it does in a normal run.
+  2. Set `root.attributes("-topmost", True)` and call `root.lift()`.
+  3. Grab with `ImageGrab.grab(bbox=(x, y, x + w, y + h))` from `winfo_rootx/rooty/width/height`.
+
+  Pillow is for screenshots only, never a game dependency. Keep screenshot scripts in the session scratchpad.
+- **Screenshots, check before use:** run `root.update()` a few times with short sleeps before the first grab. Look at every capture. If it shows anything but the game (once it caught the user's browser), delete it at once and don't describe its contents.
+- **Topmost and focus:** making the window topmost fires `<FocusOut>`, which lets go of held keys (R15). Scripts that drive the window must press keys again after that.
 - **Escapes in shell heredocs:** inline Python in heredocs can turn `\n` and `\u` escapes into real characters. This includes `\\n` inside Python string literals. Use the Edit tool for source lines that contain escapes, such as the BOM strip in `game.py`. For bigger scripted edits, write the Python script into the scratchpad with the Write tool and run it from there.
 - Symbols such as ♥ ♡ → print as `?` when `--text` output is piped (cp1252). Set `PYTHONIOENCODING=utf-8` to see them.
