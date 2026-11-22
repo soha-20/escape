@@ -4,13 +4,13 @@ The rules for time live in game.py on a clock the tests advance by hand (Game.up
 chase runs in milliseconds and every result is exact.
 """
 
-from escape_game.game import (JUMP_BUFFER_MS, JUMP_MS, PLAYER_STEP_MS, REAPER_STEP_MS, Game, Outcome,
-                              Status)
+from escape_game.game import (CALM_AFTER_RUN_MS, JUMP_BUFFER_MS, JUMP_MS, PLAYER_STEP_MS, REAPER_STEP_MS,
+                              REAPER_SURGE_MS, SURGE_AFTER_IDLE_MS, Game, Outcome, Status)
 from escape_game.maze import DIRECTIONS, Maze
 
 STEP_TO_DIR = {v: k for k, v in DIRECTIONS.items()}
-HESITANT_MS = 500  # R13: stopping this long at each of the 7 bends still escapes (measured: gap 2)
-CAUGHT_MS = 700    # R13: stopping this long at each bend is caught (from about 600 ms)
+HESITANT_MS = 300  # R13/R17: stopping this long at each bend still escapes (measured: gap 3)
+CAUGHT_MS = 400    # R13/R17: stopping this long at each bend is caught (in the key yard, R16)
 LANE = "############\n#R  P      #\n#+++++++++ #\n#E         #\n############"  # a short run east
 
 
@@ -22,7 +22,7 @@ def run_route(game, hesitate_ms=0):
     """Play the safe route like a person holding keys. Up is tapped while running onto the tile before
     each hurdle (a remembered jump, R10). At every bend the player stops, hesitates `hesitate_ms`, then
     presses the new direction. Returns the smallest gap to the Reaper seen on the way."""
-    route = game.maze.player_route(game.player, game.maze.exit)
+    route = game.route_out()  # R16: by way of the key
     held, smallest = None, game.reaper_distance()
 
     def wait(until):
@@ -110,7 +110,7 @@ def test_R13_a_clean_run_escapes_with_the_reaper_never_closer_than_4():
     smallest = run_route(game)
     assert game.status is Status.WON
     assert smallest >= 4
-    assert 14_000 < game.run_ms < 17_000  # about 15 s
+    assert 14_000 < game.run_ms < 17_000  # about 15.6 s
 
 
 def test_R13_a_hesitant_player_still_escapes_but_a_dawdler_is_caught():
@@ -334,3 +334,73 @@ def test_R10_a_remembered_jump_that_runs_out_with_no_key_held_does_nothing():
     game.press_jump()               # pressed again mid-jump: remembered for JUMP_BUFFER_MS
     game.update(JUMP_BUFFER_MS + 1)  # it runs out before the player is ready, and no key is held
     assert game.player == (1, 10) and game.lives == 3  # no crash, no stray move
+
+
+
+# --- R17: the Reaper surges when the player stops ---------------------------------------------
+
+def test_R17_the_reaper_surges_when_the_player_stands_still():
+    """R17: once the player has stood still for SURGE_AFTER_IDLE_MS, the Reaper steps every REAPER_SURGE_MS,
+    as fast as a running player."""
+    assert REAPER_SURGE_MS == PLAYER_STEP_MS < REAPER_STEP_MS
+    game = realtime(LANE)
+    game.press("right")
+    game.release("right")
+    game.update(REAPER_STEP_MS)          # first step, at the normal pace
+    assert not game.surging and game.reaper_move_ms == REAPER_STEP_MS
+    game.update(REAPER_STEP_MS)          # the player has stood still since 180 ms: 260 ms by now
+    assert game.surging and game.reaper_move_ms == REAPER_SURGE_MS
+    before = game.reaper_moved_at
+    game.update(REAPER_SURGE_MS)
+    assert game.reaper_moved_at == before + REAPER_SURGE_MS
+
+
+def test_R17_a_clean_run_never_sets_the_reaper_surging():
+    """R17: a player who keeps running is chased at the normal pace all the way."""
+    game = realtime()
+    paces = set()
+    original = game._reaper_act
+
+    def act():
+        original()
+        paces.add(game.reaper_move_ms)
+
+    game._reaper_act = act
+    run_route(game)
+    assert game.status is Status.WON and paces == {REAPER_STEP_MS}
+
+
+def test_R17_running_on_for_a_second_calms_the_reaper():
+    """R17: after a surge, CALM_AFTER_RUN_MS of unbroken running brings the Reaper back to its normal pace."""
+    game = realtime("##########################\n#R  P                    #\n#                       E#\n##########################")
+    game.press("right")
+    game.release("right")
+    game.update(REAPER_STEP_MS + SURGE_AFTER_IDLE_MS + REAPER_SURGE_MS)
+    assert game.surging
+    game.press("right")                  # run on, without stopping
+    game.update(CALM_AFTER_RUN_MS - 200)
+    assert game.surging
+    game.update(400)
+    assert not game.surging
+
+
+def test_R17_bumping_into_something_counts_as_standing_still():
+    """R17: running into a gravestone and staying there sets the Reaper off just like stopping."""
+    game = realtime("##########\n#R     P+#\n#       E#\n##########")
+    game.press("left")                   # a first step (1,6) sets the chase off
+    game.release("left")
+    game.update(PLAYER_STEP_MS)
+    game.press("right")                  # back to (1,7), then held into the gravestone at (1,8)
+    game.update(REAPER_STEP_MS * 2)
+    assert game.bumped == "gravestone" and game.player == (1, 7)
+    game.update(REAPER_STEP_MS)
+    assert game.surging and game.status is Status.PLAYING
+
+
+def test_R17_turn_based_games_never_surge():
+    """R17: the --text game has no clock, so the Reaper keeps to one step per move."""
+    game = Game()
+    for _ in range(3):
+        game.move("up")  # bumps the fence: no turn, no surge
+    game.update(5000)
+    assert not game.surging

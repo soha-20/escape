@@ -6,6 +6,7 @@ the gate in the south fence; the hurdles lie on the path and must be jumped.
 The class keeps its round-1 name, Maze. Legend for LAYOUT:
     .  gravel path       (space) grass   P  player start  R  reaper start  E  exit gate
     #  iron fence        +  gravestone    T  dead tree     !  signpost (text in SIGNS)
+    K  the gate key (R16: the exit is locked until the player has it; drawn as path)
     O  open grave        *  thorn bush    (hazards: walkable, but they cost the player a life)
     =  fallen headstone  C  coffin        (low hurdles: block walking, but the player can jump them;
                                            the reaper glides over them)
@@ -24,15 +25,16 @@ LAYOUT = """\
 #+++T+++++T+++++T+++++T+++.+#
 #T.....*....O....C....*....T#
 #+.+T+++++T+++++T+++++T+++++#
-#!.        *O+++++++++++++++#
+#!...K++++++++++++++++++++++#
 #+.+T+++++T+++++T+++++T+++++#
 #T....O....=....*....O.....T#
-#+++T+++++T+++++T+++++T+++.+#
-#+++++++++++++!!++++++++++.+#
+#+++T+++++T+++++T+++++T!.+.+#
+#+++++++++++++!!++++++++*+.+#
 #O *          ....O...C....T#
 ##############E##############"""
 
 PATH = "."  # R12: the gravel path (walkable, like grass)
+KEY = "K"   # R16: the gate key; the exit stays locked until the player has picked it up
 
 OBSTACLES: dict[str, str] = {"#": "iron fence", "+": "gravestone", "T": "dead tree", "!": "signpost"}
 HAZARDS: dict[str, str] = {"O": "open grave", "*": "thorn bush"}
@@ -60,7 +62,8 @@ class Sign:
 SIGNS: dict[Pos, Sign] = {
     (2, 25): Sign("→ Round the bend and down. Hurry.", GUIDE, "right"),
     (3, 27): Sign("Wanna get stuck? ←", WARNING, "left"),
-    (7, 1): Sign("The family plot. Nobody leaves it. →", WARNING, "right"),
+    (7, 1): Sign("The gate key is buried here. →", GUIDE, "right"),  # R16: the key yard
+    (10, 23): Sign("→ A short way down. Mind the thorns!", GUIDE, "right"),  # R16: the shortcut
     (11, 14): Sign("← The crypt yard. Nobody came back.", WARNING, "left"),
     (11, 15): Sign("← The gate is right here! RUN!", GUIDE, "left"),
 }
@@ -79,6 +82,7 @@ class Maze:
         self._hazards: dict[Pos, str] = {}
         self._low: dict[Pos, str] = {}
         self._path: set[Pos] = set()
+        self.key: Pos | None = None  # R16: where the gate key lies; None: the gate is open from the start
         marks: dict[str, Pos] = {}
         sign_marks: set[Pos] = set()
         for r, row in enumerate(rows):
@@ -92,6 +96,11 @@ class Maze:
                 elif ch in LOW_HURDLES:
                     self._low[(r, c)] = LOW_HURDLES[ch]
                 elif ch == PATH:
+                    self._path.add((r, c))
+                elif ch == KEY:  # R16: the gate key, lying on the path
+                    if self.key is not None:
+                        raise ValueError("more than one key in maze layout")
+                    self.key = (r, c)
                     self._path.add((r, c))
                 elif ch in "PRE":
                     self._path.add((r, c))  # the start tiles and the gate are drawn as path
@@ -198,6 +207,15 @@ class Maze:
                     came_from[nxt] = cur
                     queue.append(nxt)
         return None
+
+    def escape_route(self, start: Pos, has_key: bool = False) -> list[Pos] | None:
+        """R16: the player's shortest way out from start: by way of the key first, unless they have it
+        (or the graveyard has no key). Tiles inclusive, as player_route."""
+        if self.key is None or has_key:
+            return self.player_route(start, self.exit)
+        to_key = self.player_route(start, self.key)
+        on = self.player_route(self.key, self.exit)
+        return None if to_key is None or on is None else to_key + on[1:]
 
     def _safe(self, pos: Pos) -> bool:
         """Ground the player can stand on: no obstacle, hazard or low hurdle."""

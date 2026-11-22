@@ -14,6 +14,7 @@ STYLES = {
     "low": "\033[1;96m",      # R10: low hurdles to jump, bold bright cyan
     "dim": "\033[2;90m",
     "path": "\033[2;33m",    # R12: the gravel path, dim yellow
+    "key": "\033[1;33m",     # R16: the gate key, bold gold
     WARNING: "\033[1;91m",    # bold bright red
     GUIDE: "\033[1;92m",      # bold bright green
     "danger": "\033[1;91m",
@@ -23,6 +24,7 @@ INTRO = (
     "You wake among the graves of a fenced graveyard at midnight.\n"
     "Something breathes behind you. The Grim Reaper has come for you.\n"
     "Follow the gravel path (.) to the gate (E). Read the signposts.\n"
+    "The gate is locked: fetch the key (K) from the family plot first.\n"
     "Coffins (C), fallen headstones (=), open graves (O) and thorns (*) lie across the path:\n"
     "leap them: face them and type j.\n"
     "Don't look back.\n"
@@ -51,8 +53,15 @@ def a_or_an(name: str) -> str:
     return f"{'An' if name[0] in 'aeiou' else 'A'} {name}"
 
 
+KEY_FOUND = "You found the key! Now run for the gate."  # R16
+LOCKED = "The gate is locked. Find the key first."      # R16
+
+
 def bump_line(obstacle: str, jump_hint: str = "") -> str:
-    """R6: "A gravestone blocks your way." R10: a low hurdle adds how to jump it, e.g. "Press ↑ to jump over it." """
+    """R6: "A gravestone blocks your way." R10: a low hurdle adds how to jump it, e.g. "Press ↑ to jump over it."
+    R16: the locked gate says what to do."""
+    if obstacle == "locked gate":
+        return LOCKED
     line = f"{a_or_an(obstacle)} blocks your way."
     if jump_hint and obstacle in LOW_HURDLES.values():
         line += f" {jump_hint} to jump over it."
@@ -81,6 +90,8 @@ def tile(game: Game, pos, color: bool) -> str:
         return paint("!", maze.signs[pos].kind, color)
     if pos == maze.exit:
         return paint("E", "exit", color)
+    if pos == maze.key and not game.has_key:  # R16
+        return paint("K", "key", color)
     obstacle = maze.obstacle(pos)
     if obstacle:
         return paint(MARKS[obstacle], "tree" if obstacle == "dead tree" else "wall", color)
@@ -148,6 +159,9 @@ def screen(game: Game, message: str = "", color: bool = True) -> str:
         parts.append(RESUME_CONTROLS)
     else:
         parts.append(f"Turn {game.turn}   " + reaper_line(game.reaper_distance(), color))
+        if game.maze.key is not None:  # R16
+            parts.append("You have the key. Run for the gate!" if game.has_key
+                         else "The gate is locked. Fetch the key (K).")
         parts.extend(sign_lines(game, color))
         if message:
             parts.append(message)

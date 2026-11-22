@@ -11,7 +11,7 @@ import os
 import sys
 
 from .game import Game, Outcome, Status
-from .render import INTRO, bump_line, jump_line, screen
+from .render import INTRO, KEY_FOUND, bump_line, jump_line, screen
 
 CLEAR = "\033[2J\033[H"
 
@@ -65,11 +65,14 @@ def main(argv=None, stdin=None, stdout=None) -> int:
         line = stdin.readline()
         if line == "":  # end of input: treat as quitting
             line = "q"
+        had_key = game.has_key
         outcome = game.command(line)
         if outcome is Outcome.WALL:  # R6: say what is in the way
             show(f"{bump_line(game.bumped, 'Type j')} You lose no time, but don't waste any either.")
         elif outcome is Outcome.NO_JUMP:  # R10: say why
             show(jump_line(game.jump_blocked))
+        elif game.has_key and not had_key:  # R16
+            show(KEY_FOUND)
         else:
             show(MESSAGES.get(outcome, ""))
     return 0

@@ -42,7 +42,7 @@ def play(keys):
 def winning_keys():
     from escape_game.game import Game
     game = Game()
-    path = game.maze.player_route(game.player, game.maze.exit)
+    path = game.route_out()  # R16: by way of the key
     names = {(-1, 0): "w", (1, 0): "s", (0, -1): "a", (0, 1): "d"}
     keys = ["j" if abs(b[0] - a[0]) + abs(b[1] - a[1]) == 2 else names[(b[0] - a[0], b[1] - a[1])]
             for a, b in zip(path, path[1:])]

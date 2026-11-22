@@ -221,3 +221,30 @@ def test_R10_controls_and_intro_mention_the_jump():
     """R10: the terminal tells the player that j jumps."""
     from escape_game.render import CONTROLS, INTRO
     assert "j + Enter" in CONTROLS and "type j" in INTRO
+
+
+
+# --- R16: the key and the locked gate in the terminal ------------------------------------
+
+def test_R16_the_key_is_drawn_until_it_is_picked_up():
+    """R16: the key shows as a gold 'K' on its tile; once taken, the tile is path again."""
+    game = Game()
+    r, c = game.maze.key
+    assert rows(game)[r][c] == "K" and "\033[1;33mK" in draw_map(game, color=True)
+    game.has_key = True
+    assert rows(game)[r][c] == "."
+
+
+def test_R16_the_screen_says_whether_the_gate_is_still_locked():
+    """R16: the status says to fetch the key, then to run for the gate."""
+    game = Game()
+    assert "The gate is locked. Fetch the key (K)." in screen(game, color=False)
+    game.has_key = True
+    assert "You have the key. Run for the gate!" in screen(game, color=False)
+
+
+def test_R16_bumping_the_locked_gate_says_to_find_the_key():
+    """R16: the locked gate has its own bump message (no jump hint)."""
+    from escape_game.render import INTRO, bump_line
+    assert bump_line("locked gate", "Press ↑") == "The gate is locked. Find the key first."
+    assert "key (K)" in INTRO

@@ -15,7 +15,7 @@ def keys_to(goal=None):
     """Enter-separated keys along the player's way from the start (R7: no hazards; R12: j over the
     hurdles on the path, which are always met running straight, so the player already faces them)."""
     game = Game()
-    path = game.maze.player_route(game.player, goal or game.maze.exit)
+    path = game.maze.player_route(game.player, goal) if goal else game.route_out()  # R16: by the key
     keys = []
     for a, b in zip(path, path[1:]):
         dr, dc = b[0] - a[0], b[1] - a[1]
@@ -51,7 +51,7 @@ def test_R1_full_game_escape_through_the_cli():
     """R1: typing the right moves escapes the reaper. (Changed by R14: no escape tune any more.)"""
     code, out, beeps = play(winning_keys())
     assert code == 0
-    assert "You escaped the Reaper in 79 turns!" in out
+    assert "You escaped the Reaper in 80 turns!" in out
     assert beeps == []
 
 
@@ -194,3 +194,14 @@ def test_R10_failed_jump_and_low_hurdle_bump_are_explained():
     keys = keys_to((1, 13)) + "d\n"  # run up to the coffin on the path and bump into it
     _, out, _ = play(keys + "q\n")
     assert "A coffin blocks your way. Type j to jump over it." in out
+
+
+
+# --- R16: the key in the terminal ---------------------------------------------------------
+
+def test_R16_picking_up_the_key_is_announced_in_the_terminal():
+    """R16: walking onto the key prints that it was found; the winning keys go by way of it."""
+    game = Game()
+    _, out, _ = play(keys_to(game.maze.key) + "q\n")
+    assert "You found the key! Now run for the gate." in out
+    assert "You have the key. Run for the gate!" in out

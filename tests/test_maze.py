@@ -4,6 +4,9 @@ Round 3 (R6) replaced the corridor maze with an open graveyard. The R2 tests bel
 open ground has no corridor forks, so the signs now mark fenced dead-end plots and the gates that lead on.
 Round 5 (R12) lays the graveyard out along a gravel path whose hurdles must be jumped, so the R2, R6,
 R7 and R10 tests were adapted again: the safe route is Maze.player_route (walking and jumping).
+Round 6 (R16) locks the gate until the key is fetched from a side yard and adds a shortcut beside a
+longer way, so the safe route is now Maze.escape_route (by way of the key), and the tests about forks
+and signs were adapted to the key yard and the shortcut, keeping their IDs.
 """
 
 import pytest
@@ -17,8 +20,21 @@ def maze():
 
 
 def safe_route(maze):
-    """R12: the player's way to the exit, walking and jumping, never landing on a hazard."""
-    return maze.player_route(maze.player_start, maze.exit)
+    """R12/R16: the player's way out, walking and jumping, never landing on a hazard, by way of the key."""
+    return maze.escape_route(maze.player_start)
+
+
+def loop_ends(maze, route):
+    """R16: route tiles where a side way leaves the route and comes back to it (the long way round the
+    shortcut), as opposed to a dead end."""
+    jumped = set(jumped_tiles(route))
+    ends = set()
+    for tile in route:
+        for first in maze.neighbours(tile):
+            if first not in route and first not in jumped:
+                if region_beyond(maze, tile, first) & set(route):
+                    ends.add(tile)
+    return ends
 
 
 def jumped_tiles(route):
@@ -73,9 +89,10 @@ def test_R2_exit_is_reachable_from_start(maze):
 
 
 def test_R2_graveyard_has_dead_end_plots_that_force_a_choice(maze):
-    """R2: at least 3 places where the player must choose, each a warned dead end."""
+    """R2: places where the player must choose, each a warned dead end. (Changed by R16: one of the
+    three round-5 dead ends is now the key yard, which the route must enter, so two warnings remain.)"""
     warnings = [p for p, s in maze.signs.items() if s.kind == WARNING]
-    assert len(warnings) >= 3
+    assert len(warnings) >= 2
     assert all(warned_entrance(maze, p) is not None for p in warnings)
 
 
@@ -102,15 +119,12 @@ def test_R2_guide_signs_point_along_a_shortest_safe_way(maze):
     guides = {p: s for p, s in maze.signs.items() if s.kind == GUIDE}
     assert len(guides) >= 2
 
-    def safe_dist(p):
-        return len(maze.player_route(p, maze.exit)) - 1
-
-    route = safe_route(maze)
+    route = safe_route(maze)  # R16: by way of the key
     for pos, sign in guides.items():
         on_route = [r for r in readers(maze, pos) if r in route]
         assert on_route, f"guide at {pos} cannot be read from the route"
         r = on_route[0]
-        assert safe_dist(step(r, sign.points)) == safe_dist(r) - 1
+        assert step(r, sign.points) == route[route.index(r) + 1], f"guide at {pos} points off the route"
 
 
 def test_R2_example_sign_wanna_get_stuck_is_a_red_warning(maze):
@@ -164,7 +178,9 @@ def test_R6_graveyard_is_a_path_through_graves_not_a_maze(maze):
     jumped = set(jumped_tiles(route))
     forks = [t for t in route[1:] if any(n not in route and n not in jumped for n in maze.neighbours(t))]
     warned = {warned_entrance(maze, p) for p, s in maze.signs.items() if s.kind == WARNING}
-    assert forks and set(forks) <= warned
+    # R16: the only other forks are the two ends of the long way round the shortcut
+    assert forks and set(forks) <= warned | loop_ends(maze, route)
+    assert len(loop_ends(maze, route)) == 2
 
 
 def test_R6_every_layout_mark_has_a_graveyard_name():
@@ -286,9 +302,11 @@ def test_R12_a_gravel_path_leads_from_the_start_to_the_exit(maze):
 
 
 def test_R12_graves_stand_in_neat_rows(maze):
-    """R12: no gravestone stands alone; each is part of a row, and there are long, unbroken rows."""
+    """R12: no gravestone stands alone; each is part of a row (or, R16, of the block beside the
+    shortcut), and there are long, unbroken rows."""
     for r, c in tiles_of(maze, "+"):
-        assert maze.is_wall((r, c - 1)) or maze.is_wall((r, c + 1)), f"stray gravestone at {(r, c)}"
+        assert any(maze.is_wall(n) for n in ((r, c - 1), (r, c + 1), (r - 1, c), (r + 1, c))), \
+            f"stray gravestone at {(r, c)}"
     rows = maze.layout.splitlines()
     long_rows = [row for row in rows[1:-1] if sum(ch in "+T!" for ch in row[1:-1]) >= len(row) - 4]
     assert len(long_rows) >= 5
@@ -324,17 +342,59 @@ def test_R12_every_jump_is_taken_running_straight(maze):
 
 
 def test_R12_each_lane_ends_against_a_dead_tree(maze):
-    """R12: where the path turns off a lane into a bend, a dead tree stands straight ahead."""
+    """R12: where the path turns off a lane into a bend, a dead tree stands straight ahead. (R16: or the
+    key yard's signpost; and at the shortcut the lane runs on: that is the long way.)"""
     route = safe_route(maze)
+    loops = loop_ends(maze, route)
     for prev, cur, nxt in zip(route, route[1:], route[2:]):
         came = (cur[0] - prev[0], cur[1] - prev[1])
         goes = (nxt[0] - cur[0], nxt[1] - cur[1])
-        if came[0] == 0 and goes[1] == 0 and nxt != maze.exit:  # off a lane, into a bend
+        if came[0] == 0 and goes[1] == 0 and nxt != maze.exit and cur not in loops:  # off a lane, into a bend
             ahead = (cur[0] + came[0], cur[1] + came[1] // abs(came[1]))
-            assert maze.obstacle(ahead) == "dead tree", f"the lane ending at {cur} has no tree"
+            assert maze.obstacle(ahead) in ("dead tree", "signpost"), f"the lane ending at {cur} has no tree"
 
 
 def test_R12_the_exit_gate_is_in_the_south_fence(maze):
     """R12: the path ends at an iron gate set in the graveyard fence."""
     assert maze.exit[0] == maze.height - 1
     assert maze.on_path((maze.exit[0] - 1, maze.exit[1]))
+
+
+# --- R16: a key to fetch, and a choice of ways ---------------------------------------------
+
+def test_R16_the_key_lies_at_the_back_of_a_signposted_side_yard(maze):
+    """R16: the key lies off the main path, at the back of a short dead-end yard with a green signpost
+    at its entrance pointing in."""
+    assert maze.key == (7, 5) and maze.on_path(maze.key)
+    entrance = (7, 2)
+    yard = region_beyond(maze, entrance, (7, 3))
+    assert maze.key in yard and maze.exit not in yard and maze.player_start not in yard
+    sign = maze.signs[(7, 1)]
+    assert sign.kind == GUIDE and "key" in sign.text and step(entrance, sign.points) == (7, 3)
+
+
+def test_R16_the_way_out_goes_by_the_key(maze):
+    """R16: the route out visits the key, and is longer than going straight to the gate would be."""
+    route = safe_route(maze)
+    assert maze.key in route
+    assert len(route) > len(maze.player_route(maze.player_start, maze.exit))
+    assert maze.escape_route(maze.player_start, has_key=True) == maze.player_route(maze.player_start, maze.exit)
+
+
+def test_R16_a_shortcut_through_thorns_beside_a_longer_safe_way(maze):
+    """R16: from lane C a short way leads down past a thorn bush (it must be leapt); the long way round
+    the bend has no hazard, and is only a few moves longer."""
+    fork, join = (9, 24), (12, 24)
+    short = maze.player_route(fork, join)
+    assert short == [(9, 24), (10, 24), (12, 24)] and maze.hazard((11, 24)) == "thorn bush"
+    long_way = [(9, 24), (9, 25), (9, 26), (10, 26), (11, 26), (12, 26), (12, 25), (12, 24)]
+    assert all(not maze.hazard(t) and not maze.is_wall(t) and not maze.low_hurdle(t) for t in long_way)
+    assert 3 <= (len(long_way) - 1) - (len(short) - 1) <= 6
+    assert maze.signs[(10, 23)].kind == GUIDE and "thorns" in maze.signs[(10, 23)].text
+
+
+def test_R16_a_layout_may_have_at_most_one_key():
+    """R16: the loader rejects a second key, and a layout without one has an open gate."""
+    with pytest.raises(ValueError):
+        Maze("#######\n#RPKKE#\n#######", signs={})
+    assert Maze("######\n#RP E#\n######", signs={}).key is None

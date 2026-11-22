@@ -22,8 +22,9 @@ def walk(game, tiles):
 
 
 def solution(game):
-    """The shortest way to the exit that never lands on a hazard (R7), jumping the hurdles on the path (R12)."""
-    return game.maze.player_route(game.player, game.maze.exit)[1:]
+    """The shortest way out that never lands on a hazard (R7), jumping the hurdles on the path (R12),
+    by way of the key unless the player has it (R16)."""
+    return game.route_out()[1:]
 
 
 def path_to(game, goal):
@@ -58,7 +59,7 @@ def test_R1_following_the_signs_escapes_the_reaper():
     walk(game, solution(game))
     assert game.status is Status.WON
     assert game.player == game.maze.exit
-    assert game.turn == 79  # R12: 65 steps and 14 jumps along the path
+    assert game.turn == 80  # R12/R16: steps and 15 jumps, by way of the key and the shortcut
 
 
 def test_R1_reaper_does_not_move_after_player_escapes():
@@ -151,12 +152,12 @@ def test_R2_following_the_safe_route_keeps_the_reaper_four_steps_behind():
     for nxt in solution(game)[:-1]:
         walk(game, [nxt])
         gaps.append(game.reaper_distance())
-    assert min(gaps) == 4 and gaps == sorted(gaps)
+    assert min(gaps) == 4  # R16: the key detour gives back some of what the jumps gained
     walk(game, solution(game))
     assert game.status is Status.WON
 
 
-@pytest.mark.parametrize("plot", range(3))
+@pytest.mark.parametrize("plot", range(2))  # R16: the third plot is now the key yard
 def test_R2_ignoring_a_warning_sign_gets_the_player_caught(plot):
     """R2: walking to the back of a plot a red sign warns about ends in capture."""
     game = Game()
@@ -549,3 +550,53 @@ def test_R10_a_jump_on_the_way_gains_a_step_on_the_reaper():
     assert game.reaper_distance() == gap + 1
     walk(game, solution(game))
     assert game.status is Status.WON
+
+
+# --- R16: the locked gate and the key -------------------------------------------------------
+
+YARD = "#########\n#R P K  #\n#####E###\n#########"  # the gate below (2,5); the key at (1,5)
+
+
+def test_R16_the_gate_is_locked_until_the_key_is_found():
+    """R16: walking into the exit without the key is a bump that names the locked gate, and uses no turn."""
+    game = Game(Maze(YARD.replace("K", " "), signs={}))
+    assert not game.gate_locked  # no key in this graveyard: the gate is open
+    game = Game(Maze(YARD, signs={}))
+    assert game.gate_locked and not game.has_key
+    game.move("right")          # (1,4)
+    game.player = (1, 5)        # stand above the gate without having picked up the key
+    game.has_key = False
+    assert game.move("down") is Outcome.WALL and game.bumped == "locked gate"
+    assert game.status is Status.PLAYING
+
+
+def test_R16_walking_onto_the_key_picks_it_up_and_opens_the_gate():
+    """R16: stepping onto the key takes it; then the gate lets the player out."""
+    game = Game(Maze(YARD, signs={}))
+    walk(game, [(1, 4), (1, 5)])
+    assert game.has_key and not game.gate_locked
+    assert game.move("down") is Outcome.MOVED and game.status is Status.WON
+
+
+def test_R16_the_key_is_kept_after_a_lost_life():
+    """R16: once found, the key stays found when the player resumes from the start (R4)."""
+    game = Game()
+    game.has_key = True
+    get_caught(game)
+    game.resume()
+    assert game.has_key and game.route_out() == game.maze.player_route(game.player, game.maze.exit)
+
+
+def test_R16_no_leaping_onto_a_locked_gate():
+    """R16: a jump can't land on the gate while it is locked."""
+    game = Game(Maze("#########\n#R PCE K#\n#########", signs={}))
+    assert game.jump() is Outcome.NO_JUMP and game.jump_blocked == "locked gate"
+
+
+def test_R16_following_the_route_out_fetches_the_key_and_wins():
+    """R16: the route out runs into the key yard and back, then on to the open gate."""
+    game = Game()
+    route = solution(game)
+    assert game.maze.key in route
+    walk(game, route)
+    assert game.has_key and game.status is Status.WON

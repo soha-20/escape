@@ -21,8 +21,12 @@ JUMP_KEY = "j"  # R10: the --text version's jump (the window uses the Up arrow)
 # R13/R15: the pace of the real-time chase, in milliseconds
 PLAYER_STEP_MS = 180   # one tile while a key is held
 JUMP_MS = 270          # a jump: two tiles, faster than running
-REAPER_STEP_MS = 200   # the Reaper: a little slower than a runner
+REAPER_STEP_MS = 220   # the Reaper at its normal pace: slower than a runner (R16 tuned it for the key detour)
 JUMP_BUFFER_MS = 300   # R10/R15: an Up pressed this early is remembered
+# R17: the Reaper surges when the player stops or dawdles, and calms down once they run on
+REAPER_SURGE_MS = 180     # surging, it is as fast as a running player
+SURGE_AFTER_IDLE_MS = 250  # standing still (or bumping) this long sets it off
+CALM_AFTER_RUN_MS = 1000   # running without a break this long calms it again
 
 NEVER = float("-inf")
 
@@ -70,6 +74,9 @@ class Game:
         self._ready_at = 0.0              # the player can act again from this time
         self._stalled = False             # bumped into something: wait for a new key
         self._reaper_next: float | None = None  # the Reaper's next step; None until the player's first step
+        self.has_key = False              # R16: picked up the gate key
+        self.surging = False              # R17: the Reaper is in a fury: as fast as a runner
+        self._running_since: float | None = None  # R17: when the player's current unbroken run began
         self._reset_motion()
 
     # --- turn-based commands (--text) ---------------------------------------------------
@@ -121,8 +128,10 @@ class Game:
         self._stalled = False
         self._ready_at = self.clock
         self._reaper_next = None
+        self.surging = False
+        self._running_since = None
         self._reset_motion()
-        return Outcome.RESUMED
+        return Outcome.RESUMED  # R16: the key, once found, is kept
 
     # --- real-time commands (the window), R13/R15 -------------------------------------------
     def press(self, direction: str) -> None:
@@ -169,15 +178,30 @@ class Game:
     def signs_here(self):
         return self.maze.signs_next_to(self.player)
 
+    @property
+    def gate_locked(self) -> bool:
+        """R16: the exit gate stays locked until the player has the key (if the graveyard has one)."""
+        return self.maze.key is not None and not self.has_key
+
+    def route_out(self) -> list[Pos] | None:
+        """R16: the player's shortest way out from where they stand (by way of the key if still needed)."""
+        return self.maze.escape_route(self.player, has_key=not self.gate_locked)
+
     # --- internals ------------------------------------------------------
     def _walk(self, direction: str) -> Outcome:
         self.facing = direction
         dr, dc = DIRECTIONS[direction]
         target = (self.player[0] + dr, self.player[1] + dc)
-        self.bumped = self.maze.obstacle(target) or self.maze.low_hurdle(target)
+        self.bumped = self._blocker(target)
         if self.bumped is not None:
             return Outcome.WALL
         return self._take_turn(target, jumped=False)
+
+    def _blocker(self, pos: Pos) -> str | None:
+        """What stops the player walking onto pos: an obstacle, a low hurdle, or (R16) the locked gate."""
+        if pos == self.maze.exit and self.gate_locked:
+            return "locked gate"
+        return self.maze.obstacle(pos) or self.maze.low_hurdle(pos)
 
     def _leap(self) -> Outcome:
         maze = self.maze
@@ -187,7 +211,7 @@ class Game:
         if maze.low_hurdle(over) is None and maze.hazard(over) is None:
             self.jump_blocked = "nothing"
             return Outcome.NO_JUMP
-        self.jump_blocked = maze.obstacle(land) or maze.low_hurdle(land) or maze.hazard(land)
+        self.jump_blocked = self._blocker(land) or maze.hazard(land)
         if self.jump_blocked is not None:
             return Outcome.NO_JUMP
         if over == self.reaper:                 # nobody leaps over Death
@@ -204,9 +228,13 @@ class Game:
         self.jump_blocked = None
         self.bumped = None
         if self.realtime:
+            if self._running_since is None or self.clock > self._ready_at:  # R17: a new run begins
+                self._running_since = self.clock
             self._ready_at = self.clock + self.player_move_ms
             if self._reaper_next is None:       # R13: the first step sets the Reaper off
                 self._reaper_next = self.clock + REAPER_STEP_MS
+        if self.player == self.maze.key:        # R16: the key is picked up by walking (or leaping) onto it
+            self.has_key = True
         if self.player == self.reaper:          # walked (or leapt) into the reaper
             self._lose_life("reaper")
         elif self.player == self.maze.exit:     # escaped before the reaper moves
@@ -245,20 +273,36 @@ class Game:
         for direction in reversed(self.held):
             dr, dc = DIRECTIONS[direction]
             target = (self.player[0] + dr, self.player[1] + dc)
-            if not (self.maze.obstacle(target) or self.maze.low_hurdle(target)):
+            if self._blocker(target) is None:
                 self.events.append(self._walk(direction))
                 return
         self.events.append(self._walk(self.held[-1]))  # every way is blocked: bump the newest
         self._stalled = True
 
     def _reaper_act(self) -> None:
-        """R13: the Reaper's own clock ticks: one step toward the player."""
+        """R13: the Reaper's own clock ticks: one step toward the player, at its normal pace or (R17)
+        surging."""
+        self._update_surge()
+        pace = REAPER_SURGE_MS if self.surging else REAPER_STEP_MS
         self.reaper_from = self.reaper
         self.reaper_moved_at = self.clock
+        self.reaper_move_ms = pace
         self._reaper_step()
-        self._reaper_next += REAPER_STEP_MS
+        self._reaper_next += pace
         if self.reaper == self.player:
             self._lose_life("reaper")
+
+    def _update_surge(self) -> None:
+        """R17: a player who has stood still (or bumped about) for SURGE_AFTER_IDLE_MS sets the Reaper
+        surging; one who has then run without a break for CALM_AFTER_RUN_MS calms it."""
+        idle_ms = self.clock - self._ready_at  # how long the player has been standing, if positive
+        if idle_ms >= SURGE_AFTER_IDLE_MS:
+            self.surging = True
+        if idle_ms > 0:
+            self._running_since = None
+        elif self.surging and self._running_since is not None \
+                and self.clock - self._running_since >= CALM_AFTER_RUN_MS:
+            self.surging = False
 
     def _advance_to(self, time: float) -> None:
         if self.status is Status.PLAYING and self._reaper_next is not None:
