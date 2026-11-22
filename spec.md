@@ -14,6 +14,10 @@ This document describes how the program meets each requirement in `problem.md`.
 | Chase (round 5) | **Real-time, hold to run** (R13): the Reaper moves whether or not the player does, a little slower than a running player, so a clean run escapes and every hesitation lets it catch up |
 | Sound (round 5) | **Removed completely** (R14): no tones, no heartbeat, no `--mute`. The visual cues (beating hearts, pulsing red aura, red border) stay |
 | IDs (round 5) | The product owner numbered the round-5 bullets in `problem.md`: **R14 = remove the sound**, **R15 = smooth flow**. (A first draft of this round used the opposite numbers; the code, tests and records were renumbered to match.) |
+| Key and shortcut (round 6) | **The gate is locked; the key lies at the back of a signposted side yard** off the path, and lane C has a **short way down past thorns** (one leap) beside **the longer, safe way round the bend** (R16) |
+| Speed-up (round 6) | **The Reaper surges when the player stops or dawdles** (up to running speed) and **calms down after a second of unbroken running** (R17) |
+| Best time (round 6) | **Kept in a small file in the home folder** (`~/.escape_grim_reaper.json`); the win screen shows the time, the best and **NEW BEST!** (R18) |
+| Text version (round 6) | `--text` gets the key and the locked gate; **no surge and no saved best** there (it has no clock) |
 | Lives (round 2) | **3 lives.** Being caught costs one life; the game is lost when the last one goes |
 | Resume (round 2) | After a catch the game pauses; **R** resumes with player and reaper **both back on their start tiles** |
 | After the last life (round 2) | GAME OVER; **R** starts a fresh game with 3 lives |
@@ -47,11 +51,19 @@ This document describes how the program meets each requirement in `problem.md`.
 
 The earlier tests were adapted, not deleted. See `docs/decisions/0005-…` to `0007-…`.
 
+*Revision (2026-11-22, round 6):* the product owner found the game still boring and chose three of Claude's suggestions as R16–R18: a locked gate with a key to fetch and a shortcut beside a safer way (R16), a Reaper that surges when the player stops (R17), and a kept best time (R18). This changes:
+* R2: one of the three warned dead ends is now the key yard, which the route must enter (two warnings remain); the safe route goes by way of the key (`Maze.escape_route`); a new guide sign marks the shortcut.
+* R4: after a lost life the key, once found, is kept *(default)*.
+* R12: the path forks at the shortcut too, and the long way round it joins the path again.
+* R13: the Reaper's normal pace is now 220 ms per tile (was 200), so the key detour stays fair; it can surge to 180 ms (R17).
+
+The earlier tests were adapted, not deleted. See `docs/decisions/0008-…`.
+
 Where `problem.md` and the answers above left a detail open, this spec picks a default, marked *(default)*. Each one can be changed.
 
 ## Overview
 
-The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, and the Grim Reaper is close behind. A gravel path winds back and forth between neat rows of graves to the exit gate in the south fence. Coffins, fallen headstones, open graves and thorn bushes lie across the path; the player must leap them while running. Side paths branch off into dead-end plots, and signposts warn about them.
+The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, and the Grim Reaper is close behind. A gravel path winds back and forth between neat rows of graves to the exit gate in the south fence. Coffins, fallen headstones, open graves and thorn bushes lie across the path; the player must leap them while running. Side paths branch off into dead-end plots, and signposts warn about them. The gate is locked: the key lies in a little yard off the path (R16).
 
 ### The graveyard (R6, R12)
 
@@ -63,11 +75,11 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 #+++T+++++T+++++T+++++T+++.+#
 #T.....*....O....C....*....T#
 #+.+T+++++T+++++T+++++T+++++#
-#!.        *O+++++++++++++++#
+#!...K++++++++++++++++++++++#
 #+.+T+++++T+++++T+++++T+++++#
 #T....O....=....*....O.....T#
-#+++T+++++T+++++T+++++T+++.+#
-#+++++++++++++!!++++++++++.+#
+#+++T+++++T+++++T+++++T!.+.+#
+#+++++++++++++!!++++++++*+.+#
 #O *          ....O...C....T#
 ##############E##############
 ```
@@ -87,21 +99,21 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
   | `*` | thorn bush | **hazard**: costs a life (R7) |
   | `=` | fallen headstone | **low hurdle**: blocks walking, can be jumped (R10) |
   | `C` | coffin | **low hurdle**: blocks walking, can be jumped (R10) |
-  | `P`, `R`, `E` | player start, reaper start, exit gate | walkable (drawn as path) |
+  | `P`, `R`, `E` | player start, reaper start, exit gate | walkable (drawn as path); the gate is locked until the key is found (R16) |
+  | `K` | the gate key (R16) | walkable (drawn as path); picked up by stepping (or leaping) onto it |
 
 * **Shape (R12)** *(default)*. The path is one tile wide and runs in four **lanes**, joined by short bends:
   * lane A (row 1) runs east, lane B (row 5) west, lane C (row 9) east, and lane D (row 12) west to the gate `E` in the south fence;
   * between the lanes stand **neat rows of gravestones**, with a dead tree every sixth column, so the rows read as tidy cemetery sections rather than scattered graves;
   * the lanes end at dead trees, so the turns are clear.
-* **Rhythm (R12).** Fourteen hurdles lie on the path, **3 to 5 tiles apart** *(default)*: four on each of lanes A–C and two on lane D. They are coffins and fallen headstones (bump and stop if not jumped) and open graves and thorn bushes (a life lost if not jumped). The run is: run, leap, run, leap, turn.
-* **Dead ends (R2).** Three side paths leave the path and lead nowhere, each marked by a red warning sign:
+* **Rhythm (R12).** Fourteen hurdles lie on the path, **3 to 5 tiles apart** *(default)*: four on each of lanes A–C and two on lane D. A fifteenth, a thorn bush, guards the shortcut (R16). They are coffins and fallen headstones (bump and stop if not jumped) and open graves and thorn bushes (a life lost if not jumped). The run is: run, leap, run, leap, turn.
+* **Dead ends (R2).** Two side paths leave the path and lead nowhere, each marked by a red warning sign, and each ends in an open grave and a thorn bush:
   * a grass alley inside the graves between lanes A and B (entered from the first bend),
-  * a grass alley between lanes B and C (entered from the second bend),
   * the crypt yard at the west end of lane D, beside the gate.
-
-  Each ends in an open grave and a thorn bush.
+* **The key yard (R16).** At the second bend, a short gravel yard (2 tiles) leads east into the graves, with the key at its back. A green signpost says *"The gate key is buried here. →"*. (In round 5 this was a longer dead-end alley.)
+* **The shortcut (R16).** Near the end of lane C, at column 24, a gap leads straight down to lane D past a thorn bush that must be leapt: 2 moves instead of the 7 round the bend, which has no hazard. A green signpost: *"→ A short way down. Mind the thorns!"*.
 * The player starts at `P`, the Reaper at `R`, **4 tiles** behind on the same lane.
-* The way to the exit (walking and jumping, never stepping on a hazard) is **79 moves**: 65 steps and 14 jumps, covering 93 tiles. In `--text` the Reaper stays 4 steps behind on the walking stretches, and each jump gains the player one step.
+* The way out (walking and jumping, never stepping on a hazard, by way of the key and the shortcut) is **80 moves**, 15 of them jumps. In `--text` the Reaper is never closer than 4 steps: each jump gains the player a step, and the key detour (into the yard and back) gives some of that back.
 
 ## R1 — The game starts and the player must escape from the Grim Reaper
 
@@ -129,43 +141,47 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
   2. The game checks the three cases above.
   3. Otherwise the Reaper takes one step along a shortest path to the player and the catch check follows.
   * The Reaper's path is a breadth-first search through every walkable tile, including hazards and low hurdles, which it glides over. Ties are broken in a fixed order, so the game is deterministic.
-* **Moves that don't count.** Moving into a gravestone, fence, tree, signpost or low hurdle doesn't move the player. A message names what is in the way, e.g. "A gravestone blocks your way." In `--text` it uses no turn. In the window the Reaper keeps coming (R13).
+* **Moves that don't count.** Moving into a gravestone, fence, tree, signpost, low hurdle or (R16) the locked gate doesn't move the player. A message names what is in the way, e.g. "A gravestone blocks your way." In `--text` it uses no turn. In the window the Reaper keeps coming (R13).
 * **Display (window).** *Changed in round 5 (R15):*
   * **The whole graveyard is on screen at once**, at 38 px per tile: 1102 × 532 px, which fits a 1280 × 720 screen. There is no scrolling camera.
   * **Tiles:** see R6, R7, R10 and R12. **Exit:** an iron cemetery gate with a green glow and the label "EXIT".
   * **Status panel (HUD)** below the graveyard, on its own canvas:
     * three life hearts (R5), whose red hearts beat faster as the Reaper approaches;
     * the **time** since the run began (`Time 12.3 s`) *(default; replaces the turn counter in the window)*;
-    * a status line ("Distant footsteps…" in grey, "Something cold breathes down your neck…" in orange, "RUN! The Reaper is right behind you!" in red);
+    * the **best time** (`Best 15.6 s`, or `Best  -` before the first escape) (R18);
+    * whether the **key** is found ("Key: not yet - the gate is locked" / "Key: found - run for the gate!") (R16);
+    * a status line ("Distant footsteps…" in grey, "Something cold breathes down your neck…" in orange, "RUN! The Reaper is right behind you!" in red; while the Reaper surges, "The Reaper quickens! Keep running!" in red, R17);
     * sign texts (R2), bump messages, and the controls.
   * **Danger:** when the Reaper is 3 steps or fewer away, the frame around the graveyard pulses red.
 * **Sound.** *Removed in round 5 (R14).* The game makes no sound.
-* **Win.** Reaching the exit shows a "YOU ESCAPED!" screen with the time (window) or turn count (`--text`).
+* **Win.** Reaching the exit (with the key, R16) shows a "YOU ESCAPED!" screen with the time and the best time, and "NEW BEST!" when it is one (window, R18), or the turn count (`--text`).
 * **Fallback.** If the window can't open (no tkinter, no display), the program says so and starts the terminal version instead.
 * **Terminal version (`--text`).** Turn-based (see the turn order above):
   * It draws the whole graveyard with `@` (player), `R` (reaper), `E`, and the layout marks, using ANSI colours (`--no-color` for plain text). The path is `.` in dim yellow and grass is `,` (R12). Hazards are red, low hurdles cyan.
   * Each move is `w`/`a`/`s`/`d` + Enter, `j` + Enter jumps forward (R10), and `q` quits.
+  * R16: the key is a gold `K` until picked up; a status line says "The gate is locked. Fetch the key (K)." or "You have the key. Run for the gate!", and "You found the key! Now run for the gate." when it is taken. There is no surge (R17) and no saved best (R18) in `--text`.
   * Unknown commands cost no turn.
   * It ignores the BOM (byte-order mark) that Windows PowerShell adds to piped input.
 
 ## R2 — Hurdles with hints and signs telling which way to go
 
-*Changed in round 5 (R12):* the dead ends are side paths that leave the gravel path. The safe route is the way to the exit by walking and jumping, never landing on a hazard (`Maze.player_route`).
+*Changed in round 5 (R12):* the dead ends are side paths that leave the gravel path. The safe route is the way to the exit by walking and jumping, never landing on a hazard (`Maze.player_route`). *Changed in round 6 (R16):* the safe route goes by way of the key (`Maze.escape_route`), and one round-5 dead end is now the key yard.
 
 * **Signs** are wooden **signposts** next to the decision points. In the window each is drawn as a post with a parchment plaque, a glowing red or green border and `!`. A sign's message appears in the HUD when the player stands on a walkable tile orthogonally next to it: *Painted on a signpost: "…"*. A text too long for the window is drawn in a smaller font (down to 10 pt) until it fits.
 * There are two kinds of sign, and every sign is honest:
   * **Warning (red, ⚠):** stands at the entrance of a dead end and points into it.
     * *"Wanna get stuck? ←"* (the example in problem.md) at the first alley;
-    * *"The family plot. Nobody leaves it. →"* at the second;
     * *"← The crypt yard. Nobody came back."* beside the gate.
-  * **Guide (green, ✔):** points toward the exit.
+  * **Guide (green, ✔):** points along the way out.
     * *"→ Round the bend and down. Hurry."* before the first bend;
+    * *"The gate key is buried here. →"* at the key yard (R16);
+    * *"→ A short way down. Mind the thorns!"* at the shortcut (R16);
     * *"← The gate is right here! RUN!"* on lane D.
 * **Validity checks (tested):**
   * the exit can be reached from the start without stepping on a hazard;
-  * there are at least 3 dead ends, and each one has a warning sign at its entrance pointing into it;
+  * there are at least 2 dead ends (3 before R16), and each one has a warning sign at its entrance pointing into it;
   * every dead end next to the safe route is marked by a warning;
-  * each guide sign points one step along a shortest safe way to the exit;
+  * each guide sign points one step along the safe way out (by way of the key);
   * in `--text`, following the safe route wins, and the Reaper is never closer than 4 steps;
   * in `--text`, walking to the back of any warned dead end gets the player caught;
   * in `--text`, one step into a dead end and straight back is survivable.
@@ -300,11 +316,11 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 ## R13 — The Grim Reaper really chases
 
 * *Problem:* the Reaper moved only when the player moved, so it always stood "4 blocks away" and could never close in on a player who stopped.
-* **Its own clock (window).** After the player's first step, the Reaper takes one step along a shortest path to the player every `REAPER_STEP_MS` = **200 ms** *(default)*, whether or not the player moves. A player who stands still is caught.
+* **Its own clock (window).** After the player's first step, the Reaper takes one step along a shortest path to the player every `REAPER_STEP_MS` = **220 ms** *(default; 200 in round 5, eased in round 6 for the key detour)*, whether or not the player moves. A player who stands still is caught.
 * **A little slower than a runner.** The player runs one tile per `PLAYER_STEP_MS` = **180 ms** and jumps 2 tiles in `JUMP_MS` = **270 ms** *(defaults)*. On a clean run the gap grows; every bump, pause or wrong turn lets the Reaper close in.
-  * Measured (tests drive the clock): a perfect run takes about 15 s, and the Reaper is never closer than 4 tiles.
-  * A player who stops for half a second at each of the 7 bends still escapes, with the Reaper 2 tiles behind.
-  * One who stops for 0.6 s or more at each bend is caught.
+  * Measured (tests drive the clock, round 6 layout, with R17): a perfect run takes about 15.6 s by the shortcut (16.4 s the long way), and the Reaper is never closer than 4 tiles.
+  * A player who stops for 0.3 s at each bend still escapes, with the Reaper 3 tiles behind.
+  * One who stops for 0.4 s at each bend is caught, in the key yard.
   * Holding a key into a hazard without jumping costs a life, as stepping on one always did.
 * **Logic, not timers.** The rules for time live in `game.py`, on a clock that the window advances: `Game(realtime=True)` and `Game.update(ms)`. Tests can then run a whole chase in a few milliseconds. Why: `docs/decisions/0005-realtime-chase-on-a-game-clock.md`.
 * `--text` stays turn-based (the product owner's choice): a line-based terminal can't run a clock.
@@ -343,6 +359,32 @@ The player wakes at midnight in a fenced, moonlit graveyard, carrying a torch, a
 
   On a faster or unthrottled machine the frame rate rises. Making it much smoother on this machine would need far simpler figures. That was not done, to keep the detailed figures R8 and R11 asked for. It is an open question for the product owner.
 
+## R16 — A key to fetch, and a choice of ways
+
+* **The locked gate.** The exit gate is locked until the player has the key (`Game.has_key`, `Game.gate_locked`). Walking into it, or leaping onto it, is a bump: *"The gate is locked. Find the key first."* In the window a gold padlock hangs on the gate (tag `lock`).
+* **The key** (`K`, `Maze.key`) lies at the back of a short side yard at the second bend, signposted in green. Stepping or leaping onto it picks it up: the HUD says so, the message *"You found the key! Now run for the gate."* appears, and the key and the padlock vanish (tags `key`, `lock`). After a lost life the key is kept *(default)*; a new game puts it back.
+* **The detour is the danger.** Into the yard and back means running toward the Reaper for a moment, so a player who has dawdled before it is caught there.
+* **The shortcut.** Near the end of lane C, a green sign marks a gap down to lane D, past a thorn bush that must be leapt: 2 moves instead of 7. The long way round the bend has no hazard. Measured: the shortcut saves about 0.8 s (15.6 s against 16.4 s for a clean run); a missed leap costs a life. The Reaper takes whichever way is shorter to the player, so the long way costs some of the lead.
+* **Routes:** `Maze.escape_route(start, has_key)` is the shortest way out by way of the key; `Game.route_out()` is the same from where the player stands.
+* **Why this layout and these numbers:** `docs/decisions/0008-key-yard-and-a-short-shortcut.md`.
+
+## R17 — The Reaper surges when the player stops
+
+* **Surge** (window only). If the player has stood still (or kept bumping into something) for `SURGE_AFTER_IDLE_MS` = **250 ms**, the Reaper's next steps come every `REAPER_SURGE_MS` = **180 ms**, as fast as a running player *(defaults)*. The surge is checked at each of the Reaper's steps.
+* **Calm.** Once the player has run without a break for `CALM_AFTER_RUN_MS` = **1 s**, the Reaper goes back to its normal pace (220 ms).
+* **Seen:** the Reaper's red aura flares to 1.35 times its size, and the HUD status line says *"The Reaper quickens! Keep running!"* in red.
+* A clean run never sets it off. Turn-based play (`--text`) has no surge.
+* `Game.surging`; the Reaper's step length is in `Game.reaper_move_ms`, so the window draws its faster glide.
+
+## R18 — The time and the best time
+
+* The window shows the running time in the HUD (since round 5) and now also the **best time**.
+* **Kept between games** in `~/.escape_grim_reaper.json` (`{"best_ms": 15600}`), by `escape_game/records.py` (`BestTime`) *(default)*. Only escapes count; a faster escape replaces the best.
+* **Win screen:** the run's time, *"Best time 15.6 s"*, and a blinking **NEW BEST!** (tag `new_best`) when it is one.
+* **Robust:** a missing, broken or unwritable file is ignored; the game carries on and keeps the best in memory.
+* Tests never touch the real file: `GameWindow(best_file=None)` (the default) keeps the best only while the window is open; `gui.run()` passes the home-folder file.
+* `--text` shows the turn count and keeps no best *(the product owner's choice)*.
+
 ## Program structure
 
 ```
@@ -353,8 +395,9 @@ escape_game/
   game.py        # Game state: positions, move()/jump(), turn order, the real-time clock, lives, win/lose
   gui.py         # tkinter window: the whole graveyard, figures and motion, HUD, screens
   render.py      # text drawing for --text mode, and the shared wording
+  records.py     # R18: the best time, in a small file in the home folder (the only file the game writes)
 tests/
-  test_*.py      # pytest; every test names the requirement it checks (R1–R15)
+  test_*.py      # pytest; every test names the requirement it checks (R1–R18)
 docs/decisions/   # decision records (Y-statements), numbered 0001, 0002, ...
 ```
 
@@ -362,4 +405,4 @@ The game logic (`game.py`, `maze.py`) does no input/output, so tests can call it
 
 ## Out of scope for this version
 
-Multiple levels, random graveyards, moving hazards, checkpoints, a Reaper that speeds up, high scores, saving, sound.
+Multiple levels, random graveyards, moving hazards, checkpoints, a Reaper that speeds up over time (it only surges when the player stops), shared or online high scores, sound.

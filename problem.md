@@ -29,3 +29,8 @@ Nowadays escape games are not prevailing so much and most of the users do not ha
 - R13: the grim reaper should chase, no concept of standing at this block away. Like the normal chase game, the player being chased.
 - R14: Remove the sound as it feels a bit weird. 
 - R15: The game should go with smooth flow, not random stops and glitch.
+
+## Round 6 Requirements
+- R16: The game should give real choices: the exit gate is locked and the player has to fetch a key from a side yard first, and there is a short cut full of hazards next to the longer, safer way.
+- R17: The grim reaper should get faster when the player stops or dawdles, and calm down again when the player keeps running.
+- R18: Show the player's time and keep the best time, so there is a reason to play again.
